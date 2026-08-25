@@ -11,7 +11,7 @@ $ServiceDescription = "Receives SMTP messages and forwards them to Microsoft Gra
 $MetaUri = "https://api.github.com/repos/$Repo/releases/latest"
 $DownloadUri = "https://github.com/$Repo/releases/latest/download/$Asset"
 $ExePath = Join-Path -Path $InstallDir -ChildPath $Asset
-$ConfigFile = Join-Path -Path $InstallDir -ChildPath "smtp2graph.yaml"
+$ConfigFile = Join-Path -Path $InstallDir -ChildPath "config.yaml"
 
 function Write-Banner() {
   Write-Host "======================================" -ForegroundColor Cyan
