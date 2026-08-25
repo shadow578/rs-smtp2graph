@@ -163,5 +163,8 @@ function Main() {
   Write-Host "After configuration changes, restart the service using:" -ForegroundColor Yellow
   Write-Host "  Restart-Service -Name `"$ServiceName`"" -ForegroundColor Yellow
   Write-Host "You may run this command again at any time to update the service to the latest release." -ForegroundColor Yellow
+
+  # cd to install dir so user can run cli directly.
+  Set-Location -Path $InstallDir
 }
 Main
