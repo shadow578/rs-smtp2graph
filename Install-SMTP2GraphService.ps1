@@ -1,0 +1,167 @@
+param()
+
+$Repo = "shadow578/rs-smtp2graph"
+$Asset = "smtp2graph.exe"
+
+$InstallDir = "C:\Program Files\SMTP2Graph"
+$ServiceName = "smtp2graph"
+$ServiceDisplayName = "SMTP2Graph Mail Proxy"
+$ServiceDescription = "Receives SMTP messages and forwards them to Microsoft Graph API for delivery."
+
+$MetaUri = "https://api.github.com/repos/$Repo/releases/latest"
+$DownloadUri = "https://github.com/$Repo/releases/latest/download/$Asset"
+$ExePath = Join-Path -Path $InstallDir -ChildPath $Asset
+$ConfigFile = Join-Path -Path $InstallDir -ChildPath "smtp2graph.yaml"
+
+function Write-Banner() {
+  Write-Host "======================================" -ForegroundColor Cyan
+  Write-Host "  SMTP2Graph Proxy Service Installer  " -ForegroundColor Cyan
+  Write-Host "======================================" -ForegroundColor Cyan
+}
+
+function Test-AdminPermission() {
+  $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
+  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function DownloadServiceExecutable() {
+  # fetch metadata about latest release
+  $meta = Invoke-RestMethod -Uri $MetaUri
+  $releaseName = $meta.name
+  $releaseTag = $meta.tag_name
+  $releaseDate = $meta.published_at
+
+  # find digest of the release asset.
+  $asset = $meta.assets | Where-Object { $_.name -eq $Asset } | Select-Object -First 1
+  $exeSize = $asset.size
+  $exeDigest = $asset.digest
+
+  # validate then remove sha256: prefix to get raw hash for comparison.
+  if (-not $exeDigest.StartsWith('sha256:')) {
+    Write-Host "Release digest is not sha256. Aborting installation, as verification would not be possible." -ForegroundColor Red
+    exit 1
+  }
+  $exeDigest = $exeDigest -replace 'sha256:', ''
+
+  Write-Host "Installing SMTP2Graph version $releaseName ($releaseTag) released on $releaseDate..." -ForegroundColor Green
+  if ((Read-Host "Do you want to continue? (y/N)") -ine 'y') {
+    Write-Host "Installation aborted." -ForegroundColor Yellow
+    exit 1
+  }
+  Write-Host ""
+
+  # create sub-dirs as needed
+  if (-not (Test-Path -Path $InstallDir)) {
+    Write-Host "Creating installation directory at $InstallDir..." -ForegroundColor Green
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+  }
+
+  # delete existing executable if it exists
+  if (Test-Path -Path $ExePath) {
+    Write-Host "Removing existing executable at $ExePath..." -ForegroundColor Green
+    Remove-Item -Path $ExePath -Force
+  }
+
+  # download the latest release
+  Write-Host "Downloading SMTP2Graph service from $DownloadUri..." -ForegroundColor Green
+  Invoke-WebRequest -Uri $DownloadUri -OutFile $ExePath -UseBasicParsing
+
+  # validate size and digest match
+  Write-Host "Validating downloaded file..." -ForegroundColor Green
+  $ok = $true
+  if ((Get-Item -Path $ExePath).length -eq $exeSize) {
+    Write-Host " Downloaded file size matches expected size ($exeSize bytes)." -ForegroundColor Green
+  }
+  else {
+    Write-Host " Downloaded file size does not match expected size." -ForegroundColor Red
+    $ok = $false
+  }
+  if ($ok -and (Get-FileHash -Path $ExePath -Algorithm SHA256).Hash -eq $exeDigest) {
+    Write-Host " Downloaded file hash matches expected value (SHA256:$exeDigest)." -ForegroundColor Green
+  }
+  else {
+    Write-Host " Downloaded file hash does not match expected value." -ForegroundColor Red
+    $ok = $false
+  }
+  if (-not $ok) {
+    Write-Host "Failed to validate downloaded executable. Aborting installation." -ForegroundColor Red
+    Remove-Item -Path $ExePath -Force
+    exit 1
+  }
+}
+
+function Test-ProxyServiceExists() {
+  return $null -ne (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)
+}
+
+function Stop-ProxyService() {
+  if (Test-ProxyServiceExists) {
+    Write-Host "Stopping existing SMTP2Graph service..." -ForegroundColor Green
+    Stop-Service -Name $ServiceName -Force | Out-Null
+  }
+}
+
+function Update-ProxyService() {
+  if (Test-ProxyServiceExists) {
+    Write-Host "Restarting SMTP2Graph service..." -ForegroundColor Green
+    Restart-Service -Name $ServiceName | Out-Null
+  }
+  else {
+    Write-Host "Installing SMTP2Graph service..." -ForegroundColor Green
+
+    # use LocalService for least privilege.
+    # password is required but not used.
+    $cred = (New-Object System.Management.Automation.PSCredential("NT AUTHORITY\LocalService", (ConvertTo-SecureString "x" -AsPlainText -Force)))
+
+    New-Service -Name $ServiceName `
+      -DisplayName $ServiceDisplayName `
+      -Description $ServiceDescription `
+      -BinaryPathName "`"$ExePath`" --config `"$ConfigFile`" run --service" `
+      -Credential $cred `
+      -StartupType Automatic `
+      -ErrorAction Stop | Out-Null
+
+    if (-not (Test-ProxyServiceExists)) {
+      Write-Host "Failed to install SMTP2Graph service." -ForegroundColor Red
+      exit 1
+    }
+  }
+}
+
+
+function Main() {
+  Write-Banner
+
+  if (-not (Test-AdminPermission)) {
+    Write-Host "This script must be run as an administrator. Please run it with elevated privileges." -ForegroundColor Red
+    exit 1
+  }
+
+  # stop the service if it exists
+  Stop-ProxyService
+
+  # download and verfiy the latest release
+  DownloadServiceExecutable
+
+  # initialize the config file if it doesn't exist
+  if (-not (Test-Path -Path $ConfigFile)) {
+    Write-Host "Initializing configuration file at $ConfigFile..." -ForegroundColor Green
+    Start-Process -FilePath $ExePath -ArgumentList @("--config", "$ConfigFile", "config", "reset") -Wait
+  }
+
+  # install the service if it doesn't exist
+  # restart if it does exist
+  Update-ProxyService
+
+  # done
+  Write-Host ""
+  Write-Host "SMTP2Graph service installation complete." -ForegroundColor Green
+  Write-Host "You must now configure the service before it can be used." -ForegroundColor Yellow
+  Write-Host "To manage configuration, use the configuration cli using this command:" -ForegroundColor Yellow
+  Write-Host "  `"$ExePath`" --config `"$ConfigFile`" config (...)" -ForegroundColor Yellow 
+  Write-Host "After configuration changes, restart the service using:" -ForegroundColor Yellow
+  Write-Host "  Restart-Service -Name `"$ServiceName`"" -ForegroundColor Yellow
+  Write-Host "You may run this command again at any time to update the service to the latest release." -ForegroundColor Yellow
+}
+Main

@@ -1,0 +1,11 @@
+[package]
+name = "ms_graph"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.23.1"
+log = "0.4.33"
+reqwest = { version = "0.13.4", features = ["json", "form"] }
+serde = { version = "1", features = ["derive"] }
