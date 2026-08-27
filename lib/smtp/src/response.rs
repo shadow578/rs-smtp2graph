@@ -160,3 +160,55 @@ impl Response {
         )
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fixed() {
+        let response = Response::fixed(220, "2.0.0 Test Response");
+
+        assert_eq!(response.code, 220);
+        assert_eq!(response.message(), "2.0.0 Test Response");
+        assert_eq!(response.has_next, false);
+    }
+
+    #[test]
+    fn test_custom() {
+        let response = Response::new(200, "Test Response 1");
+        assert_eq!(response.code, 200);
+        assert_eq!(response.message(), "Test Response 1");
+        assert_eq!(response.has_next, false);
+
+        let response = Response::new_continued(201, "Test Response 2");
+        assert_eq!(response.code, 201);
+        assert_eq!(response.message(), "Test Response 2");
+        assert_eq!(response.has_next, true);
+    }
+
+    #[test]
+    fn test_extend()
+    {
+        let response = Response::new(200, "Test Response");
+        assert_eq!(response.code, 200);
+        assert_eq!(response.message(), "Test Response");
+        assert_eq!(response.has_next, false);
+
+        let response = response.extend("foobar");
+        assert_eq!(response.code, 200);
+        assert_eq!(response.message(), "Test Response: foobar");
+        assert_eq!(response.has_next, false);
+    }
+
+    #[test]
+    fn test_to_line()
+    {
+        let response = Response::new(200, "2.0.0 Test Response");
+        assert_eq!(response.line(), "200 2.0.0 Test Response");
+
+        let response = Response::new_continued(201, "2.0.1 Test Response 2");
+        assert_eq!(response.line(), "201-2.0.1 Test Response 2");
+    }
+}

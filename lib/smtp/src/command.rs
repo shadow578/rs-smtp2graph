@@ -1,7 +1,7 @@
 use crate::command::Command::{Mail, Recipient};
 
 /// SMTP parsed commands.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Command
 {
     /// client hello
@@ -47,7 +47,7 @@ pub(crate) enum Command
 }
 
 /// available modes for SMTP AUTH command.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) enum AuthMethod
 {
     /// AUTH PLAIN
@@ -169,3 +169,96 @@ fn split_none_or_once(input: &[u8], delimiter: u8) -> (&[u8], Option<&[u8]>)
         None => (input, None)
     }
 }
+
+#[cfg(test)]
+mod tests
+{
+    use super::*;
+
+    fn parse(cmd: &str) -> Result<Command, &'static str> {
+        Command::parse(cmd.as_bytes())
+    }
+
+    #[test]
+    fn test_parse_helo() {
+        assert_eq!(parse("HELO test.local"), Ok(Command::Hello { domain: "test.local".to_owned(), extended: false }));
+
+        assert!(parse("HELO").is_err());
+    }
+
+    #[test]
+    fn test_parse_ehlo() {
+        assert_eq!(parse("EHLO test.local"), Ok(Command::Hello { domain: "test.local".to_owned(), extended: true }));
+
+        assert!(parse("EHLO").is_err());
+    }
+
+    #[test]
+    fn test_parse_help() {
+        assert_eq!(parse("HELP test.local"), Ok(Command::Help));
+    }
+
+    #[test]
+    fn test_parse_start_tls() {
+        assert_eq!(parse("STARTTLS"), Ok(Command::StartTls));
+
+        assert!(parse("STARTTLS invalid_arg").is_err());
+    }
+
+    #[test]
+    fn test_parse_authenticate() {
+        // auth plain with and without initial
+        assert_eq!(parse("AUTH PLAIN foobar"), Ok(Command::Authenticate { method: AuthMethod::Plain, initial: Some(b"foobar".to_vec()) }));
+        assert_eq!(parse("AUTH PLAIN"), Ok(Command::Authenticate { method: AuthMethod::Plain, initial: None }));
+
+        // auth login with and without initial
+        assert_eq!(parse("AUTH LOGIN foobar"), Ok(Command::Authenticate { method: AuthMethod::Login, initial: Some(b"foobar".to_vec()) }));
+        assert_eq!(parse("AUTH LOGIN"), Ok(Command::Authenticate { method: AuthMethod::Login, initial: None }));
+
+        // only PLAIN and LOGIN are supported
+        assert!(parse("AUTH FOOBAR").is_err());
+    }
+
+    #[test]
+    fn test_parse_mail() {
+        assert_eq!(parse("MAIL FROM:alice@example.com"), Ok(Command::Mail { from: "alice@example.com".into() }));
+        assert_eq!(parse("MAIL FROM:<alice@example.com>"), Ok(Command::Mail { from: "<alice@example.com>".into() }));
+
+        assert!(parse("MAIL").is_err());
+        assert!(parse("MAIL FROM").is_err());
+    }
+
+    #[test]
+    fn test_parse_recipient() {
+        assert_eq!(parse("RCPT TO:bob@example.com"), Ok(Command::Recipient { to: "bob@example.com".into() }));
+        assert_eq!(parse("RCPT TO:<bob@example.com>"), Ok(Command::Recipient { to: "<bob@example.com>".into() }));
+
+        assert!(parse("RCPT").is_err());
+        assert!(parse("RCPT TO").is_err());
+    }
+
+    #[test]
+    fn test_parse_data() {
+        assert_eq!(parse("DATA"), Ok(Command::Data));
+        assert!(parse("DATA invalid_arg").is_err());
+    }
+
+    #[test]
+    fn test_parse_reset() {
+        assert_eq!(parse("RSET"), Ok(Command::Reset));
+        assert!(parse("RSET invalid_arg").is_err());
+    }
+
+    #[test]
+    fn test_parse_noop() {
+        assert_eq!(parse("NOOP"), Ok(Command::NoOp));
+        assert!(parse("NOOP invalid_arg").is_err());
+    }
+
+    #[test]
+    fn test_parse_quit() {
+        assert_eq!(parse("QUIT"), Ok(Command::Quit));
+        assert!(parse("QUIT invalid_arg").is_err());
+    }
+}
+
