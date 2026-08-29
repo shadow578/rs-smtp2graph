@@ -153,10 +153,12 @@ impl Response {
     /// does NOT include CRLF.
     pub(crate) fn line(&self) -> String
     {
+        let message = self.message();
+        let delimiter = if message.is_empty() { "" } else { if self.has_next { "-" } else { " " } };
         format!("{}{}{}",
                 self.code,
-                if self.has_next { "-" } else { " " },
-                self.message()
+                delimiter,
+                message
         )
     }
 }
@@ -210,5 +212,12 @@ mod tests {
 
         let response = Response::new_continued(201, "2.0.1 Test Response 2");
         assert_eq!(response.line(), "201-2.0.1 Test Response 2");
+    }
+
+    #[test]
+    fn test_empty_message()
+    {
+        let response = Response::new(200, "");
+        assert_eq!(response.line(), "200");
     }
 }

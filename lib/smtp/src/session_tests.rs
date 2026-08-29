@@ -333,7 +333,7 @@ async fn test_help(#[case] with_tls: bool) -> anyhow::Result<()> {
     client.skip_line().await?;
 
     client.write_line("HELP").await?;
-    client.expect_line("250-Commands supported").await?; // FIXME: extended status code missing?
+    client.expect_line("250-Commands supported").await?;
 
     let mut reported_commands = client.line().await?
         .split(" ")
@@ -468,7 +468,7 @@ async fn test_auth_plain_challenge() -> anyhow::Result<()> {
 
     // AUTH PLAIN /w challenge-response
     client.write_line("AUTH PLAIN").await?;
-    client.expect_line("334 ").await?; // FIXME: bug in session handling, adds space when no message
+    client.expect_line("334").await?;
 
     client.write_line("AGFsaWNlAGh1bnRlcjI=").await?;
     client.expect_line("235 2.7.0 Authentication succeeded").await?;
