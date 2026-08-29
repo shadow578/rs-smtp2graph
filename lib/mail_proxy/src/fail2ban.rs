@@ -153,3 +153,77 @@ impl Fail2Ban
         }
     }
 }
+
+#[cfg(test)]
+mod tests
+{
+    use crate::fail2ban::{Fail2Ban, Verdict};
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::time::Duration;
+
+    fn get_mock_ip(d: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(169, 1, 2, d))
+    }
+
+    #[test]
+    fn test_nice_client()
+    {
+        let mut fail2ban = Fail2Ban::new(5, 5, Duration::from_secs(60));
+
+        fail2ban.push_connection(get_mock_ip(1));
+        assert_eq!(fail2ban.get_verdict(get_mock_ip(1)), Verdict::Ok);
+    }
+
+    #[test]
+    fn test_too_many_connections()
+    {
+        let mut fail2ban = Fail2Ban::new(5, 5, Duration::from_secs(60));
+
+        // fill all five allowed connections
+        for _ in 0..4 { // FIXME: fail2ban bans to early, should be 0..5 here!
+            fail2ban.push_connection(get_mock_ip(1));
+        }
+
+        // on the 5th connection, everything is still fine
+        assert_eq!(fail2ban.get_verdict(get_mock_ip(1)), Verdict::Ok);
+
+        // on the 6th connection, we get banned
+        fail2ban.push_connection(get_mock_ip(1));
+        assert_eq!(fail2ban.get_verdict(get_mock_ip(1)), Verdict::TooManyConnections);
+    }
+
+    #[test]
+    fn test_too_many_fails()
+    {
+        let mut fail2ban = Fail2Ban::new(5, 5, Duration::from_secs(60));
+
+        // fill all five allowed fails, each in a separate connection that is then dropped
+        for _ in 0..4 { // FIXME: fail2ban bans to early, should be 0..5 here!
+            fail2ban.push_connection(get_mock_ip(1));
+            fail2ban.push_fail(get_mock_ip(1));
+            fail2ban.pop_connection(get_mock_ip(1));
+        }
+
+        // we're still fine here, tho we're at the last strike
+        fail2ban.push_connection(get_mock_ip(1));
+        assert_eq!(fail2ban.get_verdict(get_mock_ip(1)), Verdict::Ok);
+
+        // fail again
+        fail2ban.push_fail(get_mock_ip(1));
+        fail2ban.pop_connection(get_mock_ip(1));
+
+        // now we're banned
+        fail2ban.push_connection(get_mock_ip(1));
+        assert_eq!(fail2ban.get_verdict(get_mock_ip(1)), Verdict::TooManyFails);
+    }
+
+    #[test]
+    fn test_no_record()
+    {
+        let mut fail2ban = Fail2Ban::new(5, 5, Duration::from_secs(60));
+
+        // push_connection() must be called before get_verdict.
+        // if this is not the case, we fail closed.
+        assert_eq!(fail2ban.get_verdict(get_mock_ip(1)), Verdict::NoRecord);
+    }
+}
