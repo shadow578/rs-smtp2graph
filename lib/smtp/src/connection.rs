@@ -21,18 +21,21 @@ pub(crate) trait SmtpClientConnection: Send + Sync + 'static
     async fn read_byte(&mut self) -> io::Result<Option<u8>>;
 
     /// upgrade this connection to TLS (SMTP StartTLS).
-    /// tls: TLS acceptor instance to use for upgrade.
-    async fn start_tls(self: Box<Self>, tls: &TlsAcceptor) -> io::Result<Box<dyn SmtpClientConnection>>;
+    /// note: only valid when supports_tls() is true.
+    async fn start_tls(self: Box<Self>) -> io::Result<Box<dyn SmtpClientConnection>>;
+
+    /// does this connection support upgrading to TLS via start_tls?
+    /// note: this returns false for connections that are already tls.
+    fn supports_tls(&self) -> bool;
 
     /// is this a TLS connection?
     fn is_tls(&self) -> bool;
 }
 
 /// helper to abstract plain and TLS streams into common interface.
-#[derive(Debug)]
 pub(crate) enum Connection {
     /// plain TCP connection.
-    Plain(TcpStream),
+    Plain(TcpStream, Option<TlsAcceptor>),
 
     /// TLS secured TCP connection.
     Tls(Box<TlsStream<TcpStream>>),
@@ -42,14 +45,14 @@ pub(crate) enum Connection {
 impl SmtpClientConnection for Connection {
     async fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         match self {
-            Self::Plain(stream) => stream.write_all(data).await,
+            Self::Plain(stream, _) => stream.write_all(data).await,
             Self::Tls(stream) => stream.write_all(data).await,
         }
     }
 
     async fn flush(&mut self) -> io::Result<()> {
         match self {
-            Self::Plain(stream) => stream.flush().await,
+            Self::Plain(stream, _) => stream.flush().await,
             Self::Tls(stream) => stream.flush().await,
         }
     }
@@ -58,7 +61,7 @@ impl SmtpClientConnection for Connection {
         let mut byte = [0u8; 1];
 
         let n = match self {
-            Self::Plain(stream) => stream.read(&mut byte).await?,
+            Self::Plain(stream, _) => stream.read(&mut byte).await?,
             Self::Tls(stream) => stream.read(&mut byte).await?,
         };
 
@@ -68,11 +71,11 @@ impl SmtpClientConnection for Connection {
             Ok(Some(byte[0]))
         }
     }
-    async fn start_tls(self: Box<Connection>, tls: &TlsAcceptor) -> io::Result<Box<dyn SmtpClientConnection>> {
+    async fn start_tls(self: Box<Connection>) -> io::Result<Box<dyn SmtpClientConnection>> {
         match *self {
-            Self::Plain(stream) =>
+            Self::Plain(stream, tls) =>
                 {
-                    let tls_stream = tls.accept(stream).await?;
+                    let tls_stream = tls.unwrap().accept(stream).await?;
                     Ok(Box::from(Connection::Tls(tls_stream.into())))
                 }
             Self::Tls(_) => Err(io::Error::new(
@@ -82,9 +85,16 @@ impl SmtpClientConnection for Connection {
         }
     }
 
+    fn supports_tls(&self) -> bool {
+        match self {
+            Self::Plain(_, tls) => tls.is_some(),
+            Self::Tls(_) => false,
+        }
+    }
+
     fn is_tls(&self) -> bool {
         match self {
-            Self::Plain(_) => false,
+            Self::Plain(_, _) => false,
             Self::Tls(_) => true,
         }
     }

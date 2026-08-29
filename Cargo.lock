@@ -1517,6 +1517,7 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "log",
+ "pretty_env_logger",
  "rustls",
  "rustls-pemfile",
  "tokio",

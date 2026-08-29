@@ -28,7 +28,8 @@ impl Server
         loop {
             let (stream, peer_addr) = listener.accept().await?;
 
-            let mut session_config = config.clone();
+            let connection = Connection::Plain(stream, config.tls());
+            let mut session_config = config.session_config();
 
             tokio::spawn(async move {
                 debug!("Accepted connection from {peer_addr}");
@@ -36,7 +37,6 @@ impl Server
                 match session_config.handler().on_connect(peer_addr.ip()).await
                 {
                     Ok(ConnectResult::Ok) => {
-                        let connection = Connection::Plain(stream);
                         let mut session = Session::new(Box::new(connection), &mut session_config);
                         match timeout(SESSION_MAX_DURATION, session.handle()).await
                         {

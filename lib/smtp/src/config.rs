@@ -6,30 +6,22 @@ use tokio_rustls::TlsAcceptor;
 
 /// SMTP server and session configuration.
 #[derive(Clone)]
-pub struct Config<H: Handler>
+pub struct Config<H>
 where
     H: Handler,
 {
-    /// SMTP session event handler.
-    handler: H,
-
     /// listen address for the server.
     /// e.g. 0.0.0.0:2525.
     address: String,
 
-    /// name of this SMTP server.
-    server_name: String,
-
-    /// authentication handling mode.
-    auth_mode: AuthMode,
-
-    /// maximum size of received mail object.
-    max_message_size: usize,
-
     /// TLS acceptor for StartTLS, if configured.
     /// if not configured, StartTLS will not be available.
     tls: Option<TlsAcceptor>,
+
+    /// configuration for smtp sessions created by the server.
+    session_config: SessionConfig<H>,
 }
+
 impl<H> Config<H>
 where
     H: Handler,
@@ -38,12 +30,14 @@ where
     /// handler: mandatory SMTP session event handler.
     pub fn new(handler: H) -> Self {
         Self {
-            handler,
             address: "0.0.0.0:25".into(),
-            server_name: "localhost".into(),
-            auth_mode: AuthMode::None,
-            max_message_size: DEFAULT_MAX_MESSAGE_SIZE,
             tls: None,
+            session_config: SessionConfig {
+                handler,
+                server_name: "localhost".into(),
+                auth_mode: AuthMode::None,
+                max_message_size: DEFAULT_MAX_MESSAGE_SIZE,
+            },
         }
     }
 
@@ -65,7 +59,7 @@ where
     where
         T: Into<String>,
     {
-        self.server_name = server_name.into();
+        self.session_config.server_name = server_name.into();
         self
     }
 
@@ -74,7 +68,7 @@ where
     /// auth_mode: authentication mode.
     pub fn with_auth(&mut self, auth_mode: AuthMode) -> &mut Self
     {
-        self.auth_mode = auth_mode;
+        self.session_config.auth_mode = auth_mode;
         self
     }
 
@@ -82,7 +76,7 @@ where
     /// by default, DEFAULT_MAX_MESSAGE_SIZE is used.
     /// max_message_size: maximum message size.
     pub fn with_max_message_size(&mut self, max_message_size: usize) -> &mut Self {
-        self.max_message_size = max_message_size;
+        self.session_config.max_message_size = max_message_size;
         self
     }
 
@@ -95,16 +89,52 @@ where
         Ok(self)
     }
 
-    /// get SMTP session event handler.
-    pub(crate) fn handler(&mut self) -> &mut H
-    {
-        &mut self.handler
-    }
-
     /// get server listen address.
     pub(crate) fn address(&self) -> &String
     {
         &self.address
+    }
+
+    /// get TLS acceptor instance (cloned).
+    pub(crate) fn tls(&self) -> Option<TlsAcceptor>
+    {
+        self.tls.clone()
+    }
+
+    /// get session config (cloned).
+    pub(crate) fn session_config(&self) -> SessionConfig<H>
+    {
+        self.session_config.clone()
+    }
+}
+
+/// SMTP session configuration.
+#[derive(Clone)]
+pub(crate) struct SessionConfig<H>
+where
+    H: Handler,
+{
+    /// SMTP session event handler.
+    handler: H,
+
+    /// name of this SMTP server.
+    server_name: String,
+
+    /// authentication handling mode.
+    auth_mode: AuthMode,
+
+    /// maximum size of received mail object.
+    max_message_size: usize,
+}
+
+impl<H> SessionConfig<H>
+where
+    H: Handler,
+{
+    /// get SMTP session event handler.
+    pub(crate) fn handler(&mut self) -> &mut H
+    {
+        &mut self.handler
     }
 
     /// get server name.
@@ -125,21 +155,9 @@ where
         self.max_message_size
     }
 
-    /// get TLS acceptor instance.
-    pub(crate) fn tls(&self) -> Option<&TlsAcceptor>
-    {
-        self.tls.as_ref()
-    }
-
     /// does this configuration configure authentication in any way?
     pub(crate) fn has_auth(&self) -> bool
     {
         self.auth_mode != AuthMode::None
-    }
-
-    /// does this configuration configure TLS?
-    pub(crate) fn has_tls(&self) -> bool
-    {
-        self.tls.is_some()
     }
 }
