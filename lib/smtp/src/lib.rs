@@ -9,6 +9,9 @@ mod command;
 pub mod config;
 pub mod tls_config;
 
+#[cfg(test)]
+mod session_tests;
+
 /// authentication modes for SMTP session
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum AuthMode

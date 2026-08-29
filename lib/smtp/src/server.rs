@@ -1,5 +1,6 @@
 use crate::SESSION_MAX_DURATION;
 use crate::config::Config;
+use crate::connection::Connection;
 use crate::handler::{ConnectResult, Handler};
 use crate::session::Session;
 use anyhow::Result;
@@ -35,7 +36,8 @@ impl Server
                 match session_config.handler().on_connect(peer_addr.ip()).await
                 {
                     Ok(ConnectResult::Ok) => {
-                        let mut session = Session::new(stream, &mut session_config);
+                        let connection = Connection::Plain(stream);
+                        let mut session = Session::new(Box::new(connection), &mut session_config);
                         match timeout(SESSION_MAX_DURATION, session.handle()).await
                         {
                             Ok(Ok(())) => {}

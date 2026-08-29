@@ -1,6 +1,6 @@
 use crate::command::{AuthMethod, Command};
 use crate::config::Config;
-use crate::connection::Connection;
+use crate::connection::SmtpClientConnection;
 use crate::handler::{Handler, HelloResult, LoginResult};
 use crate::response::{AUTH_CHALLENGE_LOGIN_PASSWORD, AUTH_CHALLENGE_LOGIN_USERNAME, AUTH_CHALLENGE_PLAIN, AUTH_FAIL, AUTH_OK, AUTH_REQUIRED, BAD_SEQUENCE, DATA_START, DATA_TOO_LONG, GOODBYE, MAIL_ACCEPTED, MAIL_HANDLER_ERROR, OK, RESET, Response, START_TLS};
 use crate::{AuthMode, Mail, SESSION_READ_LINE_TIMEOUT, SESSION_REPLY_TIMEOUT};
@@ -9,7 +9,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use log::{debug, error, trace};
 use std::io;
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 /// maximum length of a single SMTP line, including CRLF.
@@ -104,7 +103,7 @@ where
 {
     /// the connection to the client.
     /// may be secured via TLS.
-    connection: Option<Connection>,
+    connection: Option<Box<dyn SmtpClientConnection>>,
 
     /// configuration to use for this session, including event handler.
     config: &'a mut Config<H>,
@@ -117,13 +116,13 @@ impl<'a, H> Session<'a, H>
 where
     H: Handler,
 {
-    /// construct a new session for an existing TCP connection stream.
-    /// stream: the TCP connection.
+    /// construct a new session for an existing connection.
+    /// connection: the client connection.
     /// config: configuration for the session, including event handler.
-    pub(crate) fn new(stream: TcpStream, config: &'a mut Config<H>) -> Self
+    pub(crate) fn new(connection: Box<dyn SmtpClientConnection>, config: &'a mut Config<H>) -> Self
     {
         Session {
-            connection: Some(Connection::Plain(stream)),
+            connection: Some(connection),
             config,
             state: SessionState::new(),
         }
