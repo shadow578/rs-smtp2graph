@@ -129,9 +129,9 @@ impl Fail2Ban
 
         // get verdict for this peer
         if let Some(info) = self.peers.get(&peer) {
-            let verdict = if info.fails >= self.max_fails {
+            let verdict = if info.fails > self.max_fails {
                 Verdict::TooManyFails
-            } else if info.connections >= self.max_connections {
+            } else if info.connections > self.max_connections {
                 Verdict::TooManyConnections
             } else {
                 Verdict::Ok
@@ -180,7 +180,7 @@ mod tests
         let mut fail2ban = Fail2Ban::new(5, 5, Duration::from_secs(60));
 
         // fill all five allowed connections
-        for _ in 0..4 { // FIXME: fail2ban bans to early, should be 0..5 here!
+        for _ in 0..5 {
             fail2ban.push_connection(get_mock_ip(1));
         }
 
@@ -198,7 +198,7 @@ mod tests
         let mut fail2ban = Fail2Ban::new(5, 5, Duration::from_secs(60));
 
         // fill all five allowed fails, each in a separate connection that is then dropped
-        for _ in 0..4 { // FIXME: fail2ban bans to early, should be 0..5 here!
+        for _ in 0..5 {
             fail2ban.push_connection(get_mock_ip(1));
             fail2ban.push_fail(get_mock_ip(1));
             fail2ban.pop_connection(get_mock_ip(1));
