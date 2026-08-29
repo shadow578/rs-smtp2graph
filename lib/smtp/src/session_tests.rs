@@ -1,6 +1,7 @@
 use crate::AuthMode;
-use crate::session_tests::mock::MockHandlerCallbackRecord;
 use crate::session_tests::mock::MockHandlerCallbackRecord::{Hello, Login, Mail};
+use std::time::Duration;
+use tokio::time::timeout;
 
 mod mock {
     use crate::Mail;
@@ -21,7 +22,7 @@ mod mock {
     use tokio::time::timeout;
     use tokio_rustls::TlsAcceptor;
 
-    const MOCK_CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
+    const MOCK_CLIENT_TIMEOUT: Duration = Duration::from_secs(2);
 
     // region: connection mocking
     pub(super) struct MockClientConnection {
@@ -235,7 +236,7 @@ async fn test_banner() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_greeting() -> anyhow::Result<()> {
+async fn test_hello_basic() -> anyhow::Result<()> {
     let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
         c.with_server_name("mocked_server");
     }).await;
@@ -249,10 +250,146 @@ async fn test_greeting() -> anyhow::Result<()> {
     client.expect_line("250 mocked_server").await?;
 
     // handler was called with details of HELO
-    handler.pop_and_expect(MockHandlerCallbackRecord::Hello { domain: "mocked_client".into(), extended: false }).await;
+    handler.pop_and_expect(Hello { domain: "mocked_client".into(), extended: false }).await;
 
 
     handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_hello_extended() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::Always)
+            .with_max_message_size(1024);
+    }).await;
+
+    client.expect_line("220 2.2.0 mocked_server ESMTP ready").await?;
+
+    // EHLO
+    client.write_line("EHLO mocked_client").await?;
+    client.expect_line("250-mocked_server").await?; // capabilities follow
+
+    // read capability response lines back, stripping prefix.
+    // note: on the last line, we have to wait for timeout (~2s).
+    let mut capabilities = Vec::new();
+    let mut response_ended = false;
+    loop {
+        match client.line().await {
+            Ok(line) => {
+                let line = if line.starts_with("250-") {
+                    assert!(!response_ended, "got more data after final response line of EHLO");
+                    line.trim_start_matches("250-")
+                } else if line.starts_with("250 ") {
+                    response_ended = true;
+                    line.trim_start_matches("250 ")
+                } else {
+                    assert!(false, "EHLO capabilities expect 250 command code");
+                    ""
+                };
+
+                capabilities.push(String::from(line));
+            }
+            Err(_) => break,
+        }
+    }
+
+    assert!(response_ended, "got no more lines before final response line of EHLO");
+
+    let mut expected_capabilities: Vec<String> = vec!["8BITMIME".into(), "AUTH PLAIN LOGIN".into(), "SIZE 1024".into()];
+
+    capabilities.sort();
+    expected_capabilities.sort();
+    assert_eq!(capabilities, expected_capabilities);
+
+    // handler was called
+    handler.pop_and_expect(Hello { domain: "mocked_client".into(), extended: true }).await;
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_help() -> anyhow::Result<()> {
+    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::Always)
+            .with_max_message_size(1024);
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELP").await?;
+    client.expect_line("250-Commands supported").await?; // FIXME: extended status code missing?
+
+    let mut reported_commands = client.line().await?
+        .split(" ")
+        .map(String::from)
+        .collect::<Vec<_>>();
+
+    let mut expected_commands: Vec<String> = vec![
+        "214".into(), // response code, listed here to keep parsing simple
+        "HELO".into(),
+        "EHLO".into(),
+        "HELP".into(),
+        "AUTH".into(),
+        "MAIL".into(),
+        "RCPT".into(),
+        "DATA".into(),
+        "RSET".into(),
+        "NOOP".into(),
+        "QUIT".into()
+    ];
+
+    reported_commands.sort();
+    expected_commands.sort();
+    assert_eq!(reported_commands, expected_commands);
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_reset() -> anyhow::Result<()> {
+    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server");
+    }).await;
+
+    client.skip_line().await?;
+
+    // first greeting
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+
+    // reset session, resetting back to non-greeted state
+    client.write_line("RSET").await?;
+    client.expect_line("250 2.0.0 RESET").await?;
+
+    // MAIL fails because greeting is missing
+    client.write_line("MAIL FROM:alice@example.com").await?;
+    client.expect_line("503 5.5.1 Bad sequence of commands").await?;
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_quit() -> anyhow::Result<()> {
+    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server");
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+
+    client.write_line("QUIT").await?;
+    client.expect_line("221 2.0.0 Goodbye").await?;
+
+    // session should close, and handle should exit soon after
+    timeout(Duration::from_secs(2), handle).await???;
     Ok(())
 }
 
