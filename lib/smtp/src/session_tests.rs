@@ -1,20 +1,27 @@
+use crate::AuthMode;
+use crate::session_tests::mock::MockHandlerCallbackRecord;
+use crate::session_tests::mock::MockHandlerCallbackRecord::{Hello, Login, Mail};
+
 mod mock {
+    use crate::Mail;
     use crate::config::Config;
     use crate::connection::SmtpClientConnection;
-    use crate::handler::Handler;
+    use crate::handler::{Handler, HelloResult, LoginResult};
     use crate::session::Session;
     use async_trait::async_trait;
+    use std::collections::VecDeque;
+    use std::error::Error;
     use std::io;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, duplex};
+    use tokio::sync::Mutex;
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
     use tokio_rustls::TlsAcceptor;
 
     const MOCK_CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
-
 
     // region: connection mocking
     pub(super) struct MockClientConnection {
@@ -119,23 +126,70 @@ mod mock {
 
         (MockClient { tx: client_tx, rx: BufReader::new(client_rx), is_tls: is_tls.clone() }, MockClientConnection { tx: server_tx, rx: server_rx, is_tls })
     }
-
     // endregion
 
     // region: handler mocking
+    #[derive(Debug, Eq, PartialEq)]
+    pub(super) enum MockHandlerCallbackRecord {
+        Hello { domain: String, extended: bool },
+        Login { username: String, password: String },
+        Mail { mail: Mail },
+        Reset,
+    }
+
     #[derive(Clone)]
-    pub(super) struct MockHandler {}
+    pub(super) struct MockHandler {
+        callbacks: Arc<Mutex<VecDeque<MockHandlerCallbackRecord>>>,
+    }
 
     impl MockHandler
     {
-        pub(super) fn new() -> Self
+        fn new() -> Self
         {
-            MockHandler {}
+            MockHandler {
+                callbacks: Arc::new(Mutex::new(VecDeque::new())),
+            }
+        }
+
+        pub(super) async fn pop_and_expect(&mut self, expected: MockHandlerCallbackRecord) {
+            assert_eq!(self.pop().await, Some(expected));
+        }
+
+        pub(super) async fn pop_and_expect_none(&mut self) {
+            assert_eq!(self.pop().await, None);
+        }
+
+        pub(super) async fn pop(&mut self) -> Option<MockHandlerCallbackRecord> {
+            self.callbacks.lock().await.pop_front()
+        }
+
+        async fn push(&mut self, record: MockHandlerCallbackRecord) {
+            self.callbacks.lock().await.push_back(record)
         }
     }
 
     #[async_trait]
-    impl Handler for MockHandler {}
+    impl Handler for MockHandler {
+        async fn on_hello(&mut self, domain: &str, extended: bool) -> Result<HelloResult, Box<dyn Error + Send + Sync>> {
+            self.push(MockHandlerCallbackRecord::Hello { domain: domain.into(), extended }).await;
+            Ok(HelloResult::Ok)
+        }
+
+        async fn on_login(&mut self, username: String, password: String) -> Result<LoginResult, Box<dyn Error + Send + Sync>> {
+            self.push(MockHandlerCallbackRecord::Login { username, password }).await;
+            Ok(LoginResult::Ok)
+        }
+
+        async fn on_mail(&mut self, mail: &Mail) -> Result<(), Box<dyn Error + Send + Sync>> {
+            self.push(MockHandlerCallbackRecord::Mail { mail: mail.clone() }).await;
+            Ok(())
+        }
+
+        async fn on_reset(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+            self.push(MockHandlerCallbackRecord::Reset).await;
+            Ok(())
+        }
+    }
 
     // endregion
 
@@ -176,17 +230,71 @@ async fn test_banner() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_greeting() -> anyhow::Result<()> {
-    pretty_env_logger::init();
-
-    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
         c.with_server_name("mocked_server");
     }).await;
 
     client.expect_line("220 2.2.0 mocked_server ESMTP ready").await?;
 
+    // client greets
     client.write_line("HELO mocked_client").await?;
 
+    // server replies
     client.expect_line("250 mocked_server").await?;
+
+    // handler was called with details of HELO
+    handler.pop_and_expect(MockHandlerCallbackRecord::Hello { domain: "mocked_client".into(), extended: false }).await;
+
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_full_transaction_basic() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::Always);
+    }).await;
+
+    // banner
+    client.expect_line("220 2.2.0 mocked_server ESMTP ready").await?;
+
+    // HELO:
+    client.write_line("HELO mocked_client").await?;
+    client.expect_line("250 mocked_server").await?;
+    handler.pop_and_expect(Hello { domain: "mocked_client".into(), extended: false }).await;
+
+    // AUTH:
+    client.write_line("AUTH PLAIN AGFsaWNlAGh1bnRlcjI=").await?;
+    client.expect_line("235 2.7.0 Authentication succeeded").await?;
+    handler.pop_and_expect(Login { username: "alice".into(), password: "hunter2".into() }).await;
+
+    // Mail:
+    client.write_line("MAIL FROM:alice@example.com").await?;
+    client.expect_line("250 2.0.0 OK").await?;
+
+    client.write_line("RCPT TO:bob@example.com").await?;
+    client.expect_line("250 2.0.0 OK").await?;
+
+    client.write_line("DATA").await?;
+    client.expect_line("354 3.0.0 Start mail input; end with <CRLF>.<CRLF>").await?;
+
+    const MIME_DATA: &str = "From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Test\r\n\r\nHello Bob.\r\n";
+
+    for line in MIME_DATA.lines() {
+        client.write_line(line).await?;
+    }
+    client.write_line(".").await?;
+    client.expect_line("250 2.0.0 Mail accepted").await?;
+
+    if let Some(Mail { mail }) = handler.pop().await {
+        assert_eq!(mail.from, "alice@example.com");
+        assert_eq!(mail.to, vec!["bob@example.com"]);
+        assert_eq!(mail.data, MIME_DATA.as_bytes().to_vec());
+    } else {
+        assert!(false);
+    }
 
     handle.abort();
     Ok(())
