@@ -1,5 +1,6 @@
 use crate::AuthMode;
 use crate::session_tests::mock::MockHandlerCallbackRecord::{Hello, Login, Mail};
+use rstest::rstest;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -20,7 +21,6 @@ mod mock {
     use tokio::sync::Mutex;
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
-    use tokio_rustls::TlsAcceptor;
 
     const MOCK_CLIENT_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -28,6 +28,7 @@ mod mock {
     pub(super) struct MockClientConnection {
         tx: DuplexStream,
         rx: DuplexStream,
+        supports_tls: bool,
         is_tls: Arc<AtomicBool>,
     }
 
@@ -52,14 +53,19 @@ mod mock {
             }
         }
 
-        async fn start_tls(self: Box<Self>, _tls: &TlsAcceptor) -> io::Result<Box<dyn SmtpClientConnection>> {
+        async fn start_tls(self: Box<Self>) -> io::Result<Box<dyn SmtpClientConnection>> {
             self.is_tls.store(true, Ordering::SeqCst);
 
             Ok(Box::from(MockClientConnection {
                 rx: self.rx,
                 tx: self.tx,
+                supports_tls: false,
                 is_tls: self.is_tls,
             }))
+        }
+
+        fn supports_tls(&self) -> bool {
+            self.supports_tls
         }
 
         fn is_tls(&self) -> bool {
@@ -121,13 +127,13 @@ mod mock {
         }
     }
 
-    fn make_connection_pair() -> (MockClient, MockClientConnection)
+    fn make_connection_pair(supports_tls: bool) -> (MockClient, MockClientConnection)
     {
         let (client_tx, server_rx) = duplex(1024);
         let (server_tx, client_rx) = duplex(1024);
         let is_tls = Arc::new(AtomicBool::new(false));
 
-        (MockClient { tx: client_tx, rx: BufReader::new(client_rx), is_tls: is_tls.clone() }, MockClientConnection { tx: server_tx, rx: server_rx, is_tls })
+        (MockClient { tx: client_tx, rx: BufReader::new(client_rx), is_tls: is_tls.clone() }, MockClientConnection { tx: server_tx, rx: server_rx, is_tls, supports_tls })
     }
     // endregion
 
@@ -201,16 +207,18 @@ mod mock {
     // endregion
 
     // region: session creation
-    pub(super) async fn create_mocked_session<F>(config_fn: F) -> (MockClient, MockHandler, JoinHandle<anyhow::Result<()>>)
+    pub(super) async fn create_mocked_session<F>(with_tls: bool, config_fn: F) -> (MockClient, MockHandler, JoinHandle<anyhow::Result<()>>)
     where
         F: FnOnce(&mut Config<MockHandler>),
     {
-        let (client, client_connection) = make_connection_pair();
+        let (client, client_connection) = make_connection_pair(with_tls);
         let handler = MockHandler::new();
         let handler_for_session = handler.clone();
 
         let mut config = Config::new(handler_for_session);
         config_fn(&mut config);
+
+        let mut config = config.session_config();
 
         let session_handle = tokio::spawn(async move {
             let mut session = Session::new(Box::new(client_connection), &mut config);
@@ -225,7 +233,7 @@ mod mock {
 
 #[tokio::test]
 async fn test_banner() -> anyhow::Result<()> {
-    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, _handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server");
     }).await;
 
@@ -237,7 +245,7 @@ async fn test_banner() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_hello_basic() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server");
     }).await;
 
@@ -257,9 +265,12 @@ async fn test_hello_basic() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::no_tls(false)]
+#[case::with_tls(true)]
 #[tokio::test]
-async fn test_hello_extended() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+async fn test_hello_extended(#[case] with_tls: bool) -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(with_tls, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::Always)
             .with_max_message_size(1024);
@@ -298,6 +309,9 @@ async fn test_hello_extended() -> anyhow::Result<()> {
     assert!(response_ended, "got no more lines before final response line of EHLO");
 
     let mut expected_capabilities: Vec<String> = vec!["8BITMIME".into(), "AUTH PLAIN LOGIN".into(), "SIZE 1024".into()];
+    if with_tls {
+        expected_capabilities.push("STARTTLS".into());
+    }
 
     capabilities.sort();
     expected_capabilities.sort();
@@ -310,9 +324,12 @@ async fn test_hello_extended() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::no_tls(false)]
+#[case::with_tls(true)]
 #[tokio::test]
-async fn test_help() -> anyhow::Result<()> {
-    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+async fn test_help(#[case] with_tls: bool) -> anyhow::Result<()> {
+    let (mut client, _handler, handle) = mock::create_mocked_session(with_tls, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::Always)
             .with_max_message_size(1024);
@@ -341,6 +358,9 @@ async fn test_help() -> anyhow::Result<()> {
         "NOOP".into(),
         "QUIT".into()
     ];
+    if with_tls {
+        expected_commands.push("STARTTLS".into());
+    }
 
     reported_commands.sort();
     expected_commands.sort();
@@ -352,7 +372,7 @@ async fn test_help() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_reset() -> anyhow::Result<()> {
-    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, _handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server");
     }).await;
 
@@ -376,7 +396,7 @@ async fn test_reset() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_quit() -> anyhow::Result<()> {
-    let (mut client, _handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, _handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server");
     }).await;
 
@@ -394,8 +414,31 @@ async fn test_quit() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_start_tls() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(true, |c| {
+        c.with_server_name("mocked_server");
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    // negotiate tls
+    client.write_line("STARTTLS").await?;
+    client.expect_line("220 2.0.0 Ready to start TLS").await?;
+
+    // we're now on a tls connection
+    assert!(client.is_tls());
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_auth_plain() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::Always);
     }).await;
@@ -417,7 +460,7 @@ async fn test_auth_plain() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_auth_plain_challenge() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::Always);
     }).await;
@@ -442,7 +485,7 @@ async fn test_auth_plain_challenge() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_auth_login_inline() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::Always);
     }).await;
@@ -453,7 +496,7 @@ async fn test_auth_login_inline() -> anyhow::Result<()> {
     client.skip_line().await?;
     handler.pop_all_and_ignore().await;
 
-    // AUTH PLAIN /w username in-line
+    // AUTH LOGIN /w username in-line
     client.write_line("AUTH LOGIN YWxpY2U=").await?;
     client.expect_line("334 UGFzc3dvcmQ6").await?;
     client.write_line("aHVudGVyMg==").await?;
@@ -466,7 +509,7 @@ async fn test_auth_login_inline() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_auth_login_challenge() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::Always);
     }).await;
@@ -477,7 +520,7 @@ async fn test_auth_login_challenge() -> anyhow::Result<()> {
     client.skip_line().await?;
     handler.pop_all_and_ignore().await;
 
-    // AUTH PLAIN /w both as challenge-response
+    // AUTH LOGIN /w both as challenge-response
     client.write_line("AUTH LOGIN").await?;
     client.expect_line("334 VXNlcm5hbWU6").await?;
     client.write_line("YWxpY2U=").await?;
@@ -491,8 +534,40 @@ async fn test_auth_login_challenge() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_auth_reject_no_tls() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+async fn test_auth_require_tls() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(true, |c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::RequireTls);
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    client.write_line("STARTTLS").await?;
+    client.skip_line().await?;
+
+    // we should be tls enabled now
+    assert!(client.is_tls());
+
+    // greet again after STARTTLS, as state is reset on upgrade
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    // AUTH PLAIN works, we started tls above
+    client.write_line("AUTH PLAIN AGFsaWNlAGh1bnRlcjI=").await?;
+    client.expect_line("235 2.7.0 Authentication succeeded").await?;
+    handler.pop_and_expect(Login { username: "alice".into(), password: "hunter2".into() }).await;
+
+    handle.abort();
+    Ok(())
+}
+#[tokio::test]
+async fn test_auth_require_tls_fail_no_tls() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(true, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::RequireTls);
     }).await;
@@ -504,7 +579,7 @@ async fn test_auth_reject_no_tls() -> anyhow::Result<()> {
     handler.pop_all_and_ignore().await;
 
     // AUTH PLAIN fails due to missing TLS
-    client.write_line("AUTH PLAIN").await?;
+    client.write_line("AUTH PLAIN AGFsaWNlAGh1bnRlcjI=").await?;
     client.expect_line("503 5.5.1 Bad sequence of commands").await?;
     handler.pop_and_expect_none().await;
 
@@ -512,10 +587,9 @@ async fn test_auth_reject_no_tls() -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn test_full_transaction_basic() -> anyhow::Result<()> {
-    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(false, |c| {
         c.with_server_name("mocked_server")
             .with_auth(AuthMode::Always);
     }).await;
