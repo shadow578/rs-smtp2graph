@@ -286,24 +286,19 @@ async fn test_hello_extended(#[case] with_tls: bool) -> anyhow::Result<()> {
     // note: on the last line, we have to wait for timeout (~2s).
     let mut capabilities = Vec::new();
     let mut response_ended = false;
-    loop {
-        match client.line().await {
-            Ok(line) => {
-                let line = if line.starts_with("250-") {
-                    assert!(!response_ended, "got more data after final response line of EHLO");
-                    line.trim_start_matches("250-")
-                } else if line.starts_with("250 ") {
-                    response_ended = true;
-                    line.trim_start_matches("250 ")
-                } else {
-                    assert!(false, "EHLO capabilities expect 250 command code");
-                    ""
-                };
+    while let Ok(line) = client.line().await
+    {
+        let line = if line.starts_with("250-") {
+            assert!(!response_ended, "got more data after final response line of EHLO");
+            line.trim_start_matches("250-")
+        } else if line.starts_with("250 ") {
+            response_ended = true;
+            line.trim_start_matches("250 ")
+        } else {
+            panic!("EHLO capabilities expect 250 command code");
+        };
 
-                capabilities.push(String::from(line));
-            }
-            Err(_) => break,
-        }
+        capabilities.push(String::from(line));
     }
 
     assert!(response_ended, "got no more lines before final response line of EHLO");
@@ -633,7 +628,7 @@ async fn test_full_transaction_basic() -> anyhow::Result<()> {
         assert_eq!(mail.recipients(), vec!["bob@example.com", "eve@example.com"]);
         assert_eq!(mail.data(), MIME_DATA.as_bytes().to_vec());
     } else {
-        assert!(false);
+        panic!("expected Mail handler to have been called");
     }
 
     // only one call to on_mail to pop, nothing more

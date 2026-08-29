@@ -172,7 +172,7 @@ mod tests {
 
         assert_eq!(response.code, 220);
         assert_eq!(response.message(), "2.0.0 Test Response");
-        assert_eq!(response.has_next, false);
+        assert!(!response.has_next);
     }
 
     #[test]
@@ -180,12 +180,12 @@ mod tests {
         let response = Response::new(200, "Test Response 1");
         assert_eq!(response.code, 200);
         assert_eq!(response.message(), "Test Response 1");
-        assert_eq!(response.has_next, false);
+        assert!(!response.has_next);
 
         let response = Response::new_continued(201, "Test Response 2");
         assert_eq!(response.code, 201);
         assert_eq!(response.message(), "Test Response 2");
-        assert_eq!(response.has_next, true);
+        assert!(response.has_next);
     }
 
     #[test]
@@ -194,12 +194,12 @@ mod tests {
         let response = Response::new(200, "Test Response");
         assert_eq!(response.code, 200);
         assert_eq!(response.message(), "Test Response");
-        assert_eq!(response.has_next, false);
+        assert!(!response.has_next);
 
         let response = response.extend("foobar");
         assert_eq!(response.code, 200);
         assert_eq!(response.message(), "Test Response: foobar");
-        assert_eq!(response.has_next, false);
+        assert!(!response.has_next,);
     }
 
     #[test]
