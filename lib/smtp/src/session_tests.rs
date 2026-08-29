@@ -83,19 +83,21 @@ mod mock {
             }).await?
         }
 
-        pub(super) async fn expect_lines(&mut self, expected: &[&str]) -> anyhow::Result<()>
-        {
-            for line in expected {
-                self.expect_line(line).await?;
-            }
-            Ok(())
-        }
 
         pub(super) async fn expect_line(&mut self, expected: &str) -> anyhow::Result<()>
         {
-            let received = timeout(MOCK_CLIENT_TIMEOUT, self.read_line()).await??;
+            let received = self.line().await?;
             assert_eq!(received, expected);
             Ok(())
+        }
+
+        pub(super) async fn skip_line(&mut self) -> anyhow::Result<()> {
+            let _ = self.line().await?;
+            Ok(())
+        }
+
+        pub(super) async fn line(&mut self) -> anyhow::Result<String> {
+            timeout(MOCK_CLIENT_TIMEOUT, self.read_line()).await?
         }
 
         async fn read_line(&mut self) -> anyhow::Result<String>
@@ -157,6 +159,10 @@ mod mock {
 
         pub(super) async fn pop_and_expect_none(&mut self) {
             assert_eq!(self.pop().await, None);
+        }
+
+        pub(super) async fn pop_all_and_ignore(&mut self) {
+            self.callbacks.lock().await.clear();
         }
 
         pub(super) async fn pop(&mut self) -> Option<MockHandlerCallbackRecord> {
@@ -251,6 +257,126 @@ async fn test_greeting() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_auth_plain() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::Always);
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    // AUTH PLAIN inline
+    client.write_line("AUTH PLAIN AGFsaWNlAGh1bnRlcjI=").await?;
+    client.expect_line("235 2.7.0 Authentication succeeded").await?;
+    handler.pop_and_expect(Login { username: "alice".into(), password: "hunter2".into() }).await;
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_plain_challenge() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::Always);
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    // AUTH PLAIN /w challenge-response
+    client.write_line("AUTH PLAIN").await?;
+    client.expect_line("334 ").await?; // FIXME: bug in session handling, adds space when no message
+
+    client.write_line("AGFsaWNlAGh1bnRlcjI=").await?;
+    client.expect_line("235 2.7.0 Authentication succeeded").await?;
+    handler.pop_and_expect(Login { username: "alice".into(), password: "hunter2".into() }).await;
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_login_inline() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::Always);
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    // AUTH PLAIN /w username in-line
+    client.write_line("AUTH LOGIN YWxpY2U=").await?;
+    client.expect_line("334 UGFzc3dvcmQ6").await?;
+    client.write_line("aHVudGVyMg==").await?;
+    client.expect_line("235 2.7.0 Authentication succeeded").await?;
+    handler.pop_and_expect(Login { username: "alice".into(), password: "hunter2".into() }).await;
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_login_challenge() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::Always);
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    // AUTH PLAIN /w both as challenge-response
+    client.write_line("AUTH LOGIN").await?;
+    client.expect_line("334 VXNlcm5hbWU6").await?;
+    client.write_line("YWxpY2U=").await?;
+    client.expect_line("334 UGFzc3dvcmQ6").await?;
+    client.write_line("aHVudGVyMg==").await?;
+    client.expect_line("235 2.7.0 Authentication succeeded").await?;
+    handler.pop_and_expect(Login { username: "alice".into(), password: "hunter2".into() }).await;
+
+    handle.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_reject_no_tls() -> anyhow::Result<()> {
+    let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
+        c.with_server_name("mocked_server")
+            .with_auth(AuthMode::RequireTls);
+    }).await;
+
+    client.skip_line().await?;
+
+    client.write_line("HELO mocked_client").await?;
+    client.skip_line().await?;
+    handler.pop_all_and_ignore().await;
+
+    // AUTH PLAIN fails due to missing TLS
+    client.write_line("AUTH PLAIN").await?;
+    client.expect_line("503 5.5.1 Bad sequence of commands").await?;
+    handler.pop_and_expect_none().await;
+
+    handle.abort();
+    Ok(())
+}
+
+
+#[tokio::test]
 async fn test_full_transaction_basic() -> anyhow::Result<()> {
     let (mut client, mut handler, handle) = mock::create_mocked_session(|c| {
         c.with_server_name("mocked_server")
@@ -277,6 +403,9 @@ async fn test_full_transaction_basic() -> anyhow::Result<()> {
     client.write_line("RCPT TO:bob@example.com").await?;
     client.expect_line("250 2.0.0 OK").await?;
 
+    client.write_line("RCPT TO:eve@example.com").await?;
+    client.expect_line("250 2.0.0 OK").await?;
+
     client.write_line("DATA").await?;
     client.expect_line("354 3.0.0 Start mail input; end with <CRLF>.<CRLF>").await?;
 
@@ -289,14 +418,23 @@ async fn test_full_transaction_basic() -> anyhow::Result<()> {
     client.expect_line("250 2.0.0 Mail accepted").await?;
 
     if let Some(Mail { mail }) = handler.pop().await {
-        assert_eq!(mail.from, "alice@example.com");
-        assert_eq!(mail.to, vec!["bob@example.com"]);
-        assert_eq!(mail.data, MIME_DATA.as_bytes().to_vec());
+        assert_eq!(mail.sender(), "alice@example.com");
+        assert_eq!(mail.recipients(), vec!["bob@example.com", "eve@example.com"]);
+        assert_eq!(mail.data(), MIME_DATA.as_bytes().to_vec());
     } else {
         assert!(false);
     }
 
+    // only one call to on_mail to pop, nothing more
+    handler.pop_and_expect_none().await;
+
+    // quit
+    client.write_line("QUIT").await?;
+    client.expect_line("221 2.0.0 Goodbye").await?;
+
+    // no more calls, on_connect and on_disconnect are not part of session
+    handler.pop_and_expect_none().await;
+
     handle.abort();
     Ok(())
 }
-
