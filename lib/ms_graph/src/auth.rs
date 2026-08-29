@@ -23,6 +23,18 @@ pub(crate) struct AccessToken {
 
 impl AccessToken
 {
+    /// create a new token instance from fixed values.
+    /// note: only for use in unit tests.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(access_token: &str, token_type: &str, expires_in: u64, issued_at: Instant) -> Self {
+        Self {
+            access_token: access_token.into(),
+            token_type: token_type.into(),
+            expires_in,
+            issued_at: Some(issued_at),
+        }
+    }
+
     /// get OAuth2 token for client using client_credentials grant.
     /// config: client config.
     pub(crate) async fn get_client_credentials(config: &Config) -> Result<Self>
@@ -70,5 +82,25 @@ impl AccessToken
     pub(crate) fn access_token(&self) -> &str
     {
         &self.access_token
+    }
+}
+
+#[cfg(test)]
+mod tests
+{
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_token_expiration()
+    {
+        let token = AccessToken {
+            access_token: "mock-access-token".into(),
+            token_type: "Bearer".into(),
+            expires_in: 3599,
+            issued_at: Some(Instant::now() - Duration::from_secs(3600)),
+        };
+
+        assert!(token.is_expired());
     }
 }

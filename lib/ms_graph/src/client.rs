@@ -80,3 +80,92 @@ impl Client
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests
+{
+    use super::*;
+    use std::time::Instant;
+    use wiremock::matchers::{body_string, body_string_contains, header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn test_authenticate() -> Result<()>
+    {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/mock-tenant-id/oauth2/v2.0/token"))
+            .and(header("content-type", "application/x-www-form-urlencoded"))
+            .and(body_string_contains("client_id=mock-client-id"))
+            .and(body_string_contains("client_secret=mock-client-secret"))
+            .and(body_string_contains("scope=https%3A%2F%2Fgraph.microsoft.com%2F.default"))
+            .and(body_string_contains("grant_type=client_credentials"))
+            .respond_with(ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "token_type": "Bearer", "access_token": "mock-access-token", "expires_in": 3600 })))
+            .mount(&server)
+            .await;
+
+        let config = Config::new(
+            "mock-tenant-id",
+            "mock-client-id",
+            "mock-client-secret",
+        )
+            .with_login_endpoint(server.uri())
+            .with_graph_endpoint(server.uri());
+
+        let mut client = Client::new(config);
+        client.authenticate().await?;
+
+        assert!(client.is_authenticated());
+
+        // assert token is as we expect
+        if let Some(token) = client.token {
+            assert_eq!(token.access_token(), "mock-access-token");
+            assert!(!token.is_expired());
+        } else {
+            panic!("client.token was None");
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_send_mail() -> Result<()>
+    {
+        let mime_data = b"From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Test\r\n\r\nHello Bob.\r\n";
+        let mime_base64 = BASE64.encode(mime_data);
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/users/alice@example.com/sendMail"))
+            .and(header("content-type", "text/plain"))
+            .and(body_string(mime_base64))
+            .respond_with(ResponseTemplate::new(200).set_body_string("202 Accepted"))
+            .mount(&server)
+            .await;
+
+        let config = Config::new(
+            "mock-tenant-id",
+            "mock-client-id",
+            "mock-client-secret",
+        )
+            .with_login_endpoint(server.uri())
+            .with_graph_endpoint(server.uri());
+
+        let mut client = Client {
+            config,
+            token: Some(
+                AccessToken::new_for_test(
+                    "Bearer",
+                    "mock-access-token",
+                    3600,
+                    Instant::now())
+            ),
+        };
+        assert!(client.is_authenticated());
+
+        client.send_mail("alice@example.com", mime_data).await?;
+
+        Ok(())
+    }
+}
