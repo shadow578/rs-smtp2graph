@@ -111,7 +111,7 @@ impl Mail
 pub const DEFAULT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
 
 /// timeout for Session::read_line().
-const SESSION_READ_LINE_TIMEOUT: Duration = Duration::from_secs(10);
+const SESSION_READ_LINE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// timeout for Session::reply().
 const SESSION_REPLY_TIMEOUT: Duration = Duration::from_secs(10);

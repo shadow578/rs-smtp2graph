@@ -28,7 +28,7 @@ impl Server
         loop {
             let (stream, peer_addr) = listener.accept().await?;
 
-            let connection = Connection::Plain(stream, config.tls());
+            let connection = Connection::new_plain(stream, config.tls());
             let mut session_config = config.session_config();
 
             tokio::spawn(async move {

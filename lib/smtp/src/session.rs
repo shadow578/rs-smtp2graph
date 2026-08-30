@@ -8,6 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use log::{debug, error, trace};
+use memchr::memchr;
 use std::io;
 use tokio::time::timeout;
 
@@ -39,8 +40,8 @@ enum HandleDataResult
     /// data capture completed
     DataEnd,
 
-    /// drop connection (e.g. message too long)
-    Drop,
+    /// message too long; drop connection
+    DataTooLong,
 }
 
 /// phases of SMTP session.
@@ -138,7 +139,7 @@ where
         {
             let line = match self.read_line().await? {
                 Some(line) => line,
-                None => return Ok(())
+                None => return Err(anyhow!("unexpected EOF")), // closes connection
             };
 
             if self.state.in_phase(Phase::Data) {
@@ -158,8 +159,8 @@ where
                         self.state.current_mail = Mail::empty();
                         self.state.phase = Phase::Greeted;
                     }
-                    HandleDataResult::Drop => {
-                        return Ok(()); // close connection
+                    HandleDataResult::DataTooLong => {
+                        return Err(anyhow!("message data was too long.")); // closes connection
                     }
                 }
                 continue;
@@ -190,7 +191,7 @@ where
                     {
                         HelloResult::Ok => (),
                         HelloResult::Reject => {
-                            return Ok(()); // close connection
+                            return Err(anyhow!("client rejected during hello")); // closes connection
                         }
                     }
 
@@ -296,7 +297,7 @@ where
                                 }
                                 LoginResult::Reject => {
                                     self.reply(AUTH_FAIL).await?;
-                                    return Ok(()); // close connection
+                                    return Err(anyhow!("client rejected during login")); // closes connection
                                 }
                             }
                         }
@@ -467,7 +468,7 @@ where
         if self.state.current_mail.data_length() + line.len() > self.config.max_message_size()
         {
             self.reply(DATA_TOO_LONG).await?;
-            return Ok(HandleDataResult::Drop);
+            return Ok(HandleDataResult::DataTooLong);
         }
 
         self.state.current_mail.append_data(line);
@@ -484,9 +485,18 @@ where
     /// does the underlying connection support upgrading to TLS?
     fn supports_tls(&self) -> Result<bool>
     {
-        Ok(self.connection.as_ref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?
-            .supports_tls())
+        Ok(
+            self.connection.as_ref()
+                .ok_or_else(|| anyhow!("connection was not valid"))?
+                .supports_tls()
+        )
+    }
+
+    /// get the connection instance.
+    fn get_connection(&mut self) -> Result<&mut Box<dyn SmtpClientConnection>>
+    {
+        self.connection.as_mut()
+            .ok_or_else(|| anyhow!("connection was not valid"))
     }
 
     /// decode base64 data
@@ -505,73 +515,62 @@ where
     /// read a line from the client, up until CRLF, handling timeout. result includes CRLF.
     async fn read_line(&mut self) -> Result<Option<Vec<u8>>>
     {
-        timeout(SESSION_READ_LINE_TIMEOUT, self.read_line_impl()).await?
-    }
+        let line = timeout(SESSION_READ_LINE_TIMEOUT, async {
+            let connection = self.get_connection()?;
+            let mut line: Vec<u8> = Vec::with_capacity(MAX_LINE_LENGTH);
 
-    /// read a line from the client, up until CRLF. result includes CRLF.
-    /// note: you should probably use read_line instead.
-    async fn read_line_impl(&mut self) -> Result<Option<Vec<u8>>>
-    {
-        let connection = self.connection.as_mut()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?;
-
-        let mut line = Vec::with_capacity(MAX_LINE_LENGTH);
-
-        loop {
-            // TODO: this is quite inefficient, consider reading larger chunks...
-            let b = match connection.read_byte().await? {
-                Some(byte) => byte,
-                None if line.is_empty() => return Ok(None),
-                None => {
-                    return Err(anyhow!(
-                        "Unexpected EOF in SMTP line read",
-                    ));
+            loop {
+                // grab buffer from connection, as many bytes as available
+                let buf = connection.fill_buf().await?;
+                if buf.is_empty() {
+                    return if line.is_empty() {
+                        Ok(None)
+                    } else {
+                        Err(anyhow!("unexpected EOF in SMTP line read"))
+                    };
                 }
-            };
-            line.push(b);
 
-            if line.len() > MAX_LINE_LENGTH {
-                return Err(anyhow!(
-                    "SMTP line is too long",
-                ));
-            }
+                // search for newline
+                // append all up until newline, or whole buffer if no newline
+                let n = memchr(b'\n', buf)
+                    .map(|n| n + 1)
+                    .unwrap_or(buf.len());
+                if line.len() + n > MAX_LINE_LENGTH {
+                    return Err(anyhow!("SMTP line is too long"));
+                }
 
-            if b == b'\n' {
-                trace!("SMTP recv> {}", String::from_utf8_lossy(&line).trim_end_matches(['\r', '\n']));
-                return Ok(Some(line));
+                line.extend_from_slice(&buf[..n]);
+                connection.consume(n).await;
+
+                // check if line complete
+                if line.last() == Some(&b'\n') {
+                    return Ok(Some(line));
+                }
             }
+        }).await??;
+
+        if let Some(ln) = line.as_ref() {
+            trace!("SMTP recv> {}", String::from_utf8_lossy(ln).trim_end_matches(['\r', '\n']));
         }
+
+        Ok(line)
     }
 
     /// send a reply to the client, applying timeout.
     /// response: the reply to send.
     async fn reply(&mut self, response: Response) -> Result<()>
     {
-        timeout(SESSION_REPLY_TIMEOUT, self.reply_impl(response)).await?
-    }
+        timeout(SESSION_REPLY_TIMEOUT, async {
+            let line = response.line();
+            trace!("SMTP send: {line}");
 
-    /// send a reply to the client.
-    /// note: you should probably use reply instead of this.
-    /// response: the reply to send.
-    async fn reply_impl(&mut self, response: Response) -> Result<()>
-    {
-        let line = response.line();
-        trace!("SMTP send: {line}");
+            let mut line = line.as_bytes().to_vec();
+            line.extend_from_slice(b"\r\n");
 
-        self.reply_raw(line.as_bytes()).await?;
-        self.reply_raw(b"\r\n").await
-    }
-
-    /// send raw data to the client.
-    /// note: you should probably use reply instead of this.
-    /// data: raw data to send.
-    async fn reply_raw(&mut self, data: &[u8]) -> Result<()>
-    {
-        let connection = self.connection.as_mut()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?;
-
-        connection.write_all(data).await?;
-        connection.flush().await?;
-        Ok(())
+            let connection = self.get_connection()?;
+            connection.write_all(line.as_slice()).await?;
+            connection.flush().await?;
+            Ok(())
+        }).await?
     }
 }

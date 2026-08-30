@@ -17,7 +17,7 @@ mod mock {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, duplex};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, duplex};
     use tokio::sync::Mutex;
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
@@ -27,7 +27,7 @@ mod mock {
     // region: connection mocking
     pub(super) struct MockClientConnection {
         tx: DuplexStream,
-        rx: DuplexStream,
+        rx: BufReader<DuplexStream>,
         supports_tls: bool,
         is_tls: Arc<AtomicBool>,
     }
@@ -43,14 +43,12 @@ mod mock {
             self.tx.flush().await
         }
 
-        async fn read_byte(&mut self) -> io::Result<Option<u8>> {
-            let mut byte = [0u8; 1];
-            let n = self.rx.read(&mut byte).await?;
-            if n == 0 {
-                Ok(None)
-            } else {
-                Ok(Some(byte[0]))
-            }
+        async fn fill_buf(&mut self) -> io::Result<&[u8]> {
+            self.rx.fill_buf().await
+        }
+
+        async fn consume(&mut self, len: usize) {
+            self.rx.consume(len);
         }
 
         async fn start_tls(self: Box<Self>) -> io::Result<Box<dyn SmtpClientConnection>> {
@@ -133,7 +131,7 @@ mod mock {
         let (server_tx, client_rx) = duplex(1024);
         let is_tls = Arc::new(AtomicBool::new(false));
 
-        (MockClient { tx: client_tx, rx: BufReader::new(client_rx), is_tls: is_tls.clone() }, MockClientConnection { tx: server_tx, rx: server_rx, is_tls, supports_tls })
+        (MockClient { tx: client_tx, rx: BufReader::new(client_rx), is_tls: is_tls.clone() }, MockClientConnection { tx: server_tx, rx: BufReader::new(server_rx), is_tls, supports_tls })
     }
     // endregion
 
