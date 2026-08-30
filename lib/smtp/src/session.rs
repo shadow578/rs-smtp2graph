@@ -1,6 +1,6 @@
 use crate::command::{AuthMethod, Command};
-use crate::config::Config;
-use crate::connection::Connection;
+use crate::config::SessionConfig;
+use crate::connection::SmtpClientConnection;
 use crate::handler::{Handler, HelloResult, LoginResult};
 use crate::response::{AUTH_CHALLENGE_LOGIN_PASSWORD, AUTH_CHALLENGE_LOGIN_USERNAME, AUTH_CHALLENGE_PLAIN, AUTH_FAIL, AUTH_OK, AUTH_REQUIRED, BAD_SEQUENCE, DATA_START, DATA_TOO_LONG, GOODBYE, MAIL_ACCEPTED, MAIL_HANDLER_ERROR, OK, RESET, Response, START_TLS};
 use crate::{AuthMode, Mail, SESSION_READ_LINE_TIMEOUT, SESSION_REPLY_TIMEOUT};
@@ -9,7 +9,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use log::{debug, error, trace};
 use std::io;
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 /// maximum length of a single SMTP line, including CRLF.
@@ -104,10 +103,10 @@ where
 {
     /// the connection to the client.
     /// may be secured via TLS.
-    connection: Option<Connection>,
+    connection: Option<Box<dyn SmtpClientConnection>>,
 
     /// configuration to use for this session, including event handler.
-    config: &'a mut Config<H>,
+    config: &'a mut SessionConfig<H>,
 
     /// the state of the session.
     state: SessionState,
@@ -117,13 +116,13 @@ impl<'a, H> Session<'a, H>
 where
     H: Handler,
 {
-    /// construct a new session for an existing TCP connection stream.
-    /// stream: the TCP connection.
+    /// construct a new session for an existing connection.
+    /// connection: the client connection.
     /// config: configuration for the session, including event handler.
-    pub(crate) fn new(stream: TcpStream, config: &'a mut Config<H>) -> Self
+    pub(crate) fn new(connection: Box<dyn SmtpClientConnection>, config: &'a mut SessionConfig<H>) -> Self
     {
         Session {
-            connection: Some(Connection::Plain(stream)),
+            connection: Some(connection),
             config,
             state: SessionState::new(),
         }
@@ -200,7 +199,7 @@ where
 
                         let mut features: Vec<String> = vec!["8BITMIME".into()];
 
-                        if self.config.has_tls() {
+                        if self.supports_tls()? {
                             features.push("STARTTLS".into());
                         }
                         if self.config.has_auth() {
@@ -232,22 +231,19 @@ where
                     if self.config.has_auth() {
                         commands.push("AUTH");
                     }
-                    if self.config.has_tls() {
+                    if self.supports_tls()? {
                         commands.push("STARTTLS");
                     }
 
                     self.reply(Response::new(214, commands.join(" "))).await?;
                 }
                 Command::StartTls => {
-                    let connection = self.connection.as_ref()
-                        .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?;
-
-                    if !self.config.has_tls() {
+                    if !self.supports_tls()? {
                         self.reply(Response::syntax_error("TLS not supported".into())).await?;
                         continue;
                     }
 
-                    if !self.state.in_phase(Phase::Greeted) || connection.is_tls() {
+                    if !self.state.in_phase(Phase::Greeted) {
                         self.reply(BAD_SEQUENCE).await?;
                         continue;
                     }
@@ -256,7 +252,7 @@ where
 
                     debug!("Upgrading connection to TLS");
                     let connection = self.connection.take().unwrap();
-                    self.connection = Some(connection.start_tls(self.config.tls().unwrap()).await?);
+                    self.connection = Some(connection.start_tls().await?);
 
                     // reset state after TLS upgrade
                     self.state = SessionState::new();
@@ -483,6 +479,14 @@ where
     fn is_authenticated(&self) -> bool
     {
         if self.config.has_auth() { self.state.is_authenticated } else { true }
+    }
+
+    /// does the underlying connection support upgrading to TLS?
+    fn supports_tls(&self) -> Result<bool>
+    {
+        Ok(self.connection.as_ref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?
+            .supports_tls())
     }
 
     /// decode base64 data

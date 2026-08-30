@@ -153,10 +153,71 @@ impl Response {
     /// does NOT include CRLF.
     pub(crate) fn line(&self) -> String
     {
+        let message = self.message();
+        let delimiter = if message.is_empty() { "" } else { if self.has_next { "-" } else { " " } };
         format!("{}{}{}",
                 self.code,
-                if self.has_next { "-" } else { " " },
-                self.message()
+                delimiter,
+                message
         )
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fixed() {
+        let response = Response::fixed(220, "2.0.0 Test Response");
+
+        assert_eq!(response.code, 220);
+        assert_eq!(response.message(), "2.0.0 Test Response");
+        assert!(!response.has_next);
+    }
+
+    #[test]
+    fn test_custom() {
+        let response = Response::new(200, "Test Response 1");
+        assert_eq!(response.code, 200);
+        assert_eq!(response.message(), "Test Response 1");
+        assert!(!response.has_next);
+
+        let response = Response::new_continued(201, "Test Response 2");
+        assert_eq!(response.code, 201);
+        assert_eq!(response.message(), "Test Response 2");
+        assert!(response.has_next);
+    }
+
+    #[test]
+    fn test_extend()
+    {
+        let response = Response::new(200, "Test Response");
+        assert_eq!(response.code, 200);
+        assert_eq!(response.message(), "Test Response");
+        assert!(!response.has_next);
+
+        let response = response.extend("foobar");
+        assert_eq!(response.code, 200);
+        assert_eq!(response.message(), "Test Response: foobar");
+        assert!(!response.has_next,);
+    }
+
+    #[test]
+    fn test_to_line()
+    {
+        let response = Response::new(200, "2.0.0 Test Response");
+        assert_eq!(response.line(), "200 2.0.0 Test Response");
+
+        let response = Response::new_continued(201, "2.0.1 Test Response 2");
+        assert_eq!(response.line(), "201-2.0.1 Test Response 2");
+    }
+
+    #[test]
+    fn test_empty_message()
+    {
+        let response = Response::new(200, "");
+        assert_eq!(response.line(), "200");
     }
 }
