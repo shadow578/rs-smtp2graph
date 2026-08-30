@@ -40,8 +40,8 @@ enum HandleDataResult
     /// data capture completed
     DataEnd,
 
-    /// drop connection (e.g. message too long)
-    Drop,
+    /// message too long; drop connection
+    DataTooLong,
 }
 
 /// phases of SMTP session.
@@ -139,7 +139,7 @@ where
         {
             let line = match self.read_line().await? {
                 Some(line) => line,
-                None => return Ok(())
+                None => return Err(anyhow!("unexpected EOF")), // closes connection
             };
 
             if self.state.in_phase(Phase::Data) {
@@ -159,8 +159,8 @@ where
                         self.state.current_mail = Mail::empty();
                         self.state.phase = Phase::Greeted;
                     }
-                    HandleDataResult::Drop => {
-                        return Ok(()); // close connection
+                    HandleDataResult::DataTooLong => {
+                        return Err(anyhow!("message data was too long.")); // closes connection
                     }
                 }
                 continue;
@@ -191,7 +191,7 @@ where
                     {
                         HelloResult::Ok => (),
                         HelloResult::Reject => {
-                            return Ok(()); // close connection
+                            return Err(anyhow!("client rejected during hello")); // closes connection
                         }
                     }
 
@@ -297,7 +297,7 @@ where
                                 }
                                 LoginResult::Reject => {
                                     self.reply(AUTH_FAIL).await?;
-                                    return Ok(()); // close connection
+                                    return Err(anyhow!("client rejected during login")); // closes connection
                                 }
                             }
                         }
@@ -468,7 +468,7 @@ where
         if self.state.current_mail.data_length() + line.len() > self.config.max_message_size()
         {
             self.reply(DATA_TOO_LONG).await?;
-            return Ok(HandleDataResult::Drop);
+            return Ok(HandleDataResult::DataTooLong);
         }
 
         self.state.current_mail.append_data(line);
