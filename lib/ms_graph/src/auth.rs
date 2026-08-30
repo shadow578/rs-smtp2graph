@@ -26,7 +26,7 @@ impl AccessToken
     /// create a new token instance from fixed values.
     /// note: only for use in unit tests.
     #[cfg(test)]
-    pub(crate) fn new_for_test(access_token: &str, token_type: &str, expires_in: u64, issued_at: Instant) -> Self {
+    pub(crate) fn new_for_test(token_type: &str, access_token: &str, expires_in: u64, issued_at: Instant) -> Self {
         Self {
             access_token: access_token.into(),
             token_type: token_type.into(),

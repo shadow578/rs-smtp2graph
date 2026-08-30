@@ -86,7 +86,7 @@ mod tests
 {
     use super::*;
     use std::time::Instant;
-    use wiremock::matchers::{body_string, body_string_contains, header, method, path};
+    use wiremock::matchers::{bearer_token, body_string, body_string_contains, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
@@ -139,6 +139,7 @@ mod tests
         Mock::given(method("POST"))
             .and(path("/users/alice@example.com/sendMail"))
             .and(header("content-type", "text/plain"))
+            .and(bearer_token("mock-access-token"))
             .and(body_string(mime_base64))
             .respond_with(ResponseTemplate::new(200).set_body_string("202 Accepted"))
             .mount(&server)
