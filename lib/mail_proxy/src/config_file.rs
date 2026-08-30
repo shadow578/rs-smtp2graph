@@ -274,3 +274,53 @@ impl GraphAPIConfig
         MSGraphCrateConfig::new(self.tenant_id, self.client_id, self.client_secret)
     }
 }
+
+#[cfg(test)]
+mod tests
+{
+    use super::*;
+
+    #[test]
+    fn test_user_auth() -> Result<()>
+    {
+        let mut config = ConfigFile::empty();
+
+        // add two users
+        config.smtp.set_user_password("alice".into(), "hunter2".into())?;
+        config.smtp.set_user_password("bob".into(), "password".into())?;
+
+        // users are tested for
+        assert!(config.smtp.has_users());
+        assert!(config.smtp.has_user("alice".into()));
+        assert!(config.smtp.has_user("bob".into()));
+
+        // correct passwords
+        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_ok());
+        assert!(config.smtp.verify_user_password("bob".into(), "password".into()).is_ok());
+
+        // wrong password
+        assert!(config.smtp.verify_user_password("alice".into(), "password".into()).is_err());
+
+        // cannot verify after removal
+        config.smtp.remove_user("alice".into())?;
+        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_user_serialize() -> Result<()>
+    {
+        let mut config = ConfigFile::empty();
+
+        config.smtp.set_user_password("alice".into(), "hunter2".into())?;
+        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_ok());
+
+        let config_yaml = yaml_serde::to_string(&config)?;
+        let config: ConfigFile = yaml_serde::from_str(&config_yaml)?;
+
+        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_ok());
+
+        Ok(())
+    }
+}
