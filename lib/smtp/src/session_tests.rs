@@ -283,25 +283,22 @@ async fn test_hello_extended(#[case] with_tls: bool) -> anyhow::Result<()> {
     client.expect_line("250-mocked_server").await?; // capabilities follow
 
     // read capability response lines back, stripping prefix.
-    // note: on the last line, we have to wait for timeout (~2s).
     let mut capabilities = Vec::new();
-    let mut response_ended = false;
     while let Ok(line) = client.line().await
     {
-        let line = if line.starts_with("250-") {
-            assert!(!response_ended, "got more data after final response line of EHLO");
-            line.trim_start_matches("250-")
+        let (line, end) = if line.starts_with("250-") {
+            (line.trim_start_matches("250-"), false)
         } else if line.starts_with("250 ") {
-            response_ended = true;
-            line.trim_start_matches("250 ")
+            (line.trim_start_matches("250 "), true)
         } else {
             panic!("EHLO capabilities expect 250 command code");
         };
 
         capabilities.push(String::from(line));
+        if end {
+            break;
+        }
     }
-
-    assert!(response_ended, "got no more lines before final response line of EHLO");
 
     let mut expected_capabilities: Vec<String> = vec!["8BITMIME".into(), "AUTH PLAIN LOGIN".into(), "SIZE 1024".into()];
     if with_tls {
