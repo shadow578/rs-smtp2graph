@@ -484,9 +484,18 @@ where
     /// does the underlying connection support upgrading to TLS?
     fn supports_tls(&self) -> Result<bool>
     {
-        Ok(self.connection.as_ref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?
-            .supports_tls())
+        Ok(
+            self.connection.as_ref()
+                .ok_or_else(|| anyhow!("connection was not valid"))?
+                .supports_tls()
+        )
+    }
+
+    /// get the connection instance.
+    fn get_connection(&mut self) -> Result<&mut Box<dyn SmtpClientConnection>>
+    {
+        self.connection.as_mut()
+            .ok_or_else(|| anyhow!("connection was not valid"))
     }
 
     /// decode base64 data
@@ -547,31 +556,15 @@ where
     /// response: the reply to send.
     async fn reply(&mut self, response: Response) -> Result<()>
     {
-        timeout(SESSION_REPLY_TIMEOUT, self.reply_impl(response)).await?
-    }
+        timeout(SESSION_REPLY_TIMEOUT, async {
+            let line = response.line();
+            trace!("SMTP send: {line}");
 
-    /// send a reply to the client.
-    /// note: you should probably use reply instead of this.
-    /// response: the reply to send.
-    async fn reply_impl(&mut self, response: Response) -> Result<()>
-    {
-        let line = response.line();
-        trace!("SMTP send: {line}");
-
-        self.reply_raw(line.as_bytes()).await?;
-        self.reply_raw(b"\r\n").await
-    }
-
-    /// send raw data to the client.
-    /// note: you should probably use reply instead of this.
-    /// data: raw data to send.
-    async fn reply_raw(&mut self, data: &[u8]) -> Result<()>
-    {
-        let connection = self.connection.as_mut()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?;
-
-        connection.write_all(data).await?;
-        connection.flush().await?;
-        Ok(())
+            let connection = self.get_connection()?;
+            connection.write_all(line.as_bytes()).await?;
+            connection.write_all(b"\r\n").await?;
+            connection.flush().await?;
+            Ok(())
+        }).await?
     }
 }
