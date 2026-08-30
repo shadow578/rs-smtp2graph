@@ -29,7 +29,7 @@ impl Client
     /// authenticate the graph client, if required.
     pub async fn authenticate(&mut self) -> Result<bool>
     {
-        if !self.is_authenticated()
+        if self.get_authentication().is_err()
         {
             debug!("Acquiring new access token");
             self.token = AccessToken::get_client_credentials(&self.config).await?
@@ -40,10 +40,15 @@ impl Client
         }
     }
 
-    /// is this client authenticated?
-    fn is_authenticated(&self) -> bool
+    /// get the authentication token of the client.
+    /// returns Ok(AccessToken) when authenticated, and Err when not.
+    fn get_authentication(&self) -> Result<&AccessToken>
     {
-        self.token.is_some() && !self.token.as_ref().unwrap().is_expired()
+        if let Some(token) = self.token.as_ref() && !token.is_expired() {
+            Ok(token)
+        } else {
+            Err(anyhow!("not authenticated or expired"))
+        }
     }
 
     /// send mail using ms graph API's sendMail
@@ -53,12 +58,6 @@ impl Client
     pub async fn send_mail(&mut self, sender: &str, mail_mime_data: &[u8]) -> Result<()>
     {
         self.authenticate().await?;
-        if !self.is_authenticated()
-        {
-            // this probably can't happen, i think...
-            return Err(anyhow!("Failed to acquire auth token"));
-        }
-
 
         let url = format!("{}/users/{}/sendMail", self.config.graph_endpoint(), sender);
         trace!("sendMail with url {}", url);
@@ -69,7 +68,7 @@ impl Client
 
         self.config.http_client()
             .post(&url)
-            .bearer_auth(self.token.as_ref().unwrap().access_token())
+            .bearer_auth(self.get_authentication()?.access_token())
             .header("Content-Type", "text/plain")
             .body(mail_data)
             .send()
@@ -116,14 +115,13 @@ mod tests
         let mut client = Client::new(config);
         client.authenticate().await?;
 
-        assert!(client.is_authenticated());
-
-        // assert token is as we expect
-        if let Some(token) = client.token {
+        // assert we're authenticated and token is as we expect
+        let token = client.get_authentication();
+        if let Ok(token) = token {
             assert_eq!(token.access_token(), "mock-access-token");
             assert!(!token.is_expired());
         } else {
-            panic!("client.token was None");
+            panic!("client not authenticated as expected");
         }
 
         Ok(())
@@ -163,7 +161,7 @@ mod tests
                     Instant::now())
             ),
         };
-        assert!(client.is_authenticated());
+        assert!(client.get_authentication().is_ok());
 
         client.send_mail("alice@example.com", mime_data).await?;
 
