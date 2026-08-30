@@ -8,6 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use log::{debug, error, trace};
+use memchr::memchr;
 use std::io;
 use tokio::time::timeout;
 
@@ -514,42 +515,45 @@ where
     /// read a line from the client, up until CRLF, handling timeout. result includes CRLF.
     async fn read_line(&mut self) -> Result<Option<Vec<u8>>>
     {
-        timeout(SESSION_READ_LINE_TIMEOUT, self.read_line_impl()).await?
-    }
+        let line = timeout(SESSION_READ_LINE_TIMEOUT, async {
+            let connection = self.get_connection()?;
+            let mut line: Vec<u8> = Vec::with_capacity(MAX_LINE_LENGTH);
 
-    /// read a line from the client, up until CRLF. result includes CRLF.
-    /// note: you should probably use read_line instead.
-    async fn read_line_impl(&mut self) -> Result<Option<Vec<u8>>>
-    {
-        let connection = self.connection.as_mut()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no connection"))?;
-
-        let mut line = Vec::with_capacity(MAX_LINE_LENGTH);
-
-        loop {
-            // TODO: this is quite inefficient, consider reading larger chunks...
-            let b = match connection.read_byte().await? {
-                Some(byte) => byte,
-                None if line.is_empty() => return Ok(None),
-                None => {
-                    return Err(anyhow!(
-                        "Unexpected EOF in SMTP line read",
-                    ));
+            loop {
+                // grab buffer from connection, as many bytes as available
+                let buf = connection.fill_buf().await?;
+                if buf.is_empty() {
+                    return if line.is_empty() {
+                        Ok(None)
+                    } else {
+                        Err(anyhow!("unexpected EOF in SMTP line read"))
+                    };
                 }
-            };
-            line.push(b);
 
-            if line.len() > MAX_LINE_LENGTH {
-                return Err(anyhow!(
-                    "SMTP line is too long",
-                ));
-            }
+                // search for newline
+                // append all up until newline, or whole buffer if no newline
+                let n = memchr(b'\n', buf)
+                    .map(|n| n + 1)
+                    .unwrap_or(buf.len());
+                if line.len() + n > MAX_LINE_LENGTH {
+                    return Err(anyhow!("SMTP line is too long"));
+                }
 
-            if b == b'\n' {
-                trace!("SMTP recv> {}", String::from_utf8_lossy(&line).trim_end_matches(['\r', '\n']));
-                return Ok(Some(line));
+                line.extend_from_slice(&buf[..n]);
+                connection.consume(n).await;
+
+                // check if line complete
+                if line.last() == Some(&b'\n') {
+                    return Ok(Some(line));
+                }
             }
+        }).await??;
+
+        if let Some(ln) = line.as_ref() {
+            trace!("SMTP recv> {}", String::from_utf8_lossy(ln).trim_end_matches(['\r', '\n']));
         }
+
+        Ok(line)
     }
 
     /// send a reply to the client, applying timeout.
