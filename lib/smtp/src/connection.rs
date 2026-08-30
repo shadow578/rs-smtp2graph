@@ -75,7 +75,11 @@ impl SmtpClientConnection for Connection {
         match *self {
             Self::Plain(stream, tls) =>
                 {
-                    let tls_stream = tls.unwrap().accept(stream).await?;
+                    let tls = tls.ok_or(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "connection cannot support TLS",
+                    ))?;
+                    let tls_stream = tls.accept(stream).await?;
                     Ok(Box::from(Connection::Tls(tls_stream.into())))
                 }
             Self::Tls(_) => Err(io::Error::new(
