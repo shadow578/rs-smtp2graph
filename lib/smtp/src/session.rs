@@ -564,9 +564,11 @@ where
             let line = response.line();
             trace!("SMTP send: {line}");
 
+            let mut line = line.as_bytes().to_vec();
+            line.extend_from_slice(b"\r\n");
+
             let connection = self.get_connection()?;
-            connection.write_all(line.as_bytes()).await?;
-            connection.write_all(b"\r\n").await?;
+            connection.write_all(line.as_slice()).await?;
             connection.flush().await?;
             Ok(())
         }).await?
