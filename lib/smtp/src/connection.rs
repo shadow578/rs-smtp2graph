@@ -1,5 +1,6 @@
 use crate::connection::Connection::{Plain, Tls};
 use async_trait::async_trait;
+use log::warn;
 use std::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -84,6 +85,13 @@ impl SmtpClientConnection for Connection {
                         io::ErrorKind::InvalidInput,
                         "connection cannot support TLS",
                     ))?;
+
+                    if !stream.buffer().is_empty() {
+                        // this should never happen...
+                        // if this ever causes issues, one could wrap the plain stream to first supply the buffered data.
+                        warn!("connection upgrade to TLS will discard pre-buffered data.");
+                    }
+
                     let tls_stream = tls.accept(stream.into_inner()).await?;
                     Ok(Box::from(Connection::new_tls(tls_stream)))
                 }
