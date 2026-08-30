@@ -1,13 +1,7 @@
+use crate::auth::UserAuth;
 use crate::custom_serde::opt_duration_secs;
 use crate::defaults::{DEFAULT_FAIL2BAN_CONNECTIONS, DEFAULT_FAIL2BAN_DURATION, DEFAULT_FAIL2BAN_FAILS, DEFAULT_SMTP_BIND_ADDRESS};
 use anyhow::{Result, anyhow};
-use argon2::{
-    Argon2,
-    password_hash::{
-        PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
-        rand_core::OsRng,
-    },
-};
 use log::debug;
 use ms_graph::RECOMMENDED_MAX_MESSAGE_SIZE;
 use ms_graph::config::Config as MSGraphCrateConfig;
@@ -16,8 +10,6 @@ use smtp::AuthMode;
 use smtp::config::Config as SMTPCrateConfig;
 use smtp::handler::Handler;
 use smtp::tls_config::TlsConfig;
-use std::collections::HashMap;
-use std::collections::hash_map::Keys;
 use std::time::Duration;
 use tokio::fs;
 
@@ -45,7 +37,7 @@ impl ConfigFile
                 allow_insecure_auth: false,
                 tls: None,
                 fail2ban: None,
-                users: HashMap::new(),
+                auth: UserAuth::new(),
             },
             graph: GraphAPIConfig {
                 tenant_id: String::new(),
@@ -108,7 +100,8 @@ pub struct SMTPServerConfig
     /// map key is username, entry contains password and metadata.
     /// username must equal a M365 user upn that is in-scope for the graph app.
     /// if no users are configured, authentication will be disabled.
-    users: HashMap<String /* username */, String /* hash */>,
+    #[serde(alias = "users")]
+    pub auth: UserAuth,
 }
 
 impl SMTPServerConfig
@@ -130,7 +123,7 @@ impl SMTPServerConfig
         }
 
         config.with_auth(
-            if self.has_users() {
+            if self.auth.has_users() {
                 if self.tls.is_some() { AuthMode::RequireTls } else {
                     if self.allow_insecure_auth { AuthMode::Always } else { AuthMode::None }
                 }
@@ -157,68 +150,6 @@ impl SMTPServerConfig
             config.max_failures.unwrap_or(DEFAULT_FAIL2BAN_FAILS),
             config.ban_duration.unwrap_or(DEFAULT_FAIL2BAN_DURATION),
         )
-    }
-
-    /// add or update user entry.
-    /// username: username to add or modify.
-    /// password: new password to set.
-    pub fn set_user_password(&mut self, username: String, password: String) -> Result<()>
-    {
-        debug!("Updating user password for {}", username);
-
-        let salt = SaltString::generate(&mut OsRng);
-        let password = Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
-            .map_err(|_| anyhow!("could not set password"))?
-            .to_string();
-
-        self.users.insert(username, password);
-        Ok(())
-    }
-
-    /// remove an existing user entry.
-    /// username: username to remove.
-    pub fn remove_user(&mut self, username: String) -> Result<()>
-    {
-        debug!("Removing user {}", username);
-
-        self.users.remove(&username).ok_or_else(|| anyhow!("User not found"))?;
-        Ok(())
-    }
-
-    /// check if a user exists.
-    /// username: the username to check for.
-    pub fn has_user(&self, username: String) -> bool
-    {
-        self.users.contains_key(&username)
-    }
-
-    /// are any users configured, enabling authentication?
-    pub fn has_users(&self) -> bool
-    {
-        !self.users.is_empty()
-    }
-
-    /// get a list of all users.
-    pub fn list_users(&self) -> Keys<'_, String, String>
-    {
-        self.users.keys()
-    }
-
-    /// verify username exists and password is correct.
-    /// username: username to match to.
-    /// password: clear-text password to validate is correct.
-    pub(crate) fn verify_user_password(&self, username: String, password: String) -> Result<()>
-    {
-        let hash = self.users.get(&username).ok_or_else(|| anyhow!("User {} not found", username))?;
-        let hash = PasswordHash::new(hash.as_str())
-            .map_err(|_| anyhow!("could not parse password hash string"))?;
-
-        Argon2::default()
-            .verify_password(password.as_bytes(), &hash)
-            .map_err(|_| anyhow!("invalid password"))?;
-
-        Ok(())
     }
 }
 
@@ -272,55 +203,5 @@ impl GraphAPIConfig
     pub fn into_client_config(self) -> MSGraphCrateConfig
     {
         MSGraphCrateConfig::new(self.tenant_id, self.client_id, self.client_secret)
-    }
-}
-
-#[cfg(test)]
-mod tests
-{
-    use super::*;
-
-    #[test]
-    fn test_user_auth() -> Result<()>
-    {
-        let mut config = ConfigFile::empty();
-
-        // add two users
-        config.smtp.set_user_password("alice".into(), "hunter2".into())?;
-        config.smtp.set_user_password("bob".into(), "password".into())?;
-
-        // users are tested for
-        assert!(config.smtp.has_users());
-        assert!(config.smtp.has_user("alice".into()));
-        assert!(config.smtp.has_user("bob".into()));
-
-        // correct passwords
-        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_ok());
-        assert!(config.smtp.verify_user_password("bob".into(), "password".into()).is_ok());
-
-        // wrong password
-        assert!(config.smtp.verify_user_password("alice".into(), "password".into()).is_err());
-
-        // cannot verify after removal
-        config.smtp.remove_user("alice".into())?;
-        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_err());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_user_serialize() -> Result<()>
-    {
-        let mut config = ConfigFile::empty();
-
-        config.smtp.set_user_password("alice".into(), "hunter2".into())?;
-        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_ok());
-
-        let config_yaml = yaml_serde::to_string(&config)?;
-        let config: ConfigFile = yaml_serde::from_str(&config_yaml)?;
-
-        assert!(config.smtp.verify_user_password("alice".into(), "hunter2".into()).is_ok());
-
-        Ok(())
     }
 }
