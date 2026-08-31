@@ -129,6 +129,15 @@ function Update-ProxyService() {
   }
 }
 
+function Add-FirewallRule() {
+  Write-Host "Do you wish to add a firewall rule to allow incoming connections on port 25?" -ForegroundColor Green
+  if ((Read-Host "Do you want to continue? (y/N)") -ine 'y') {
+    return
+  }
+  Write-Host ""
+
+  New-NetFirewallRule -DisplayName "Allow $ServiceDisplayName" -Direction Inbound -Protocol TCP -LocalPort 25 -Program $ExePath -Action Allow
+}
 
 function Main() {
   Write-Banner
@@ -153,6 +162,9 @@ function Main() {
   # install the service if it doesn't exist
   # restart if it does exist
   Update-ProxyService
+
+  # prompt to setup firewall rule
+  Add-FirewallRule
 
   # done
   Write-Host ""
