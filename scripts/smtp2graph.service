@@ -1,0 +1,19 @@
+# install the SMTP2Graph binary to /usr/local/bin and make it executable, then save this file to /etc/systemd/system/smtp2graph.service.
+# to configure the service, run smtp2graph --config /etc/smtp2graph/config.yaml.
+# to enable the service, run:
+# sudo systemctl enable smtp2graph
+# sudo systemctl start smtp2graph
+
+[Unit]
+Description=SMTP2Graph SMTP to Microsoft Graph API mail proxy service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/smtp2graph --config /etc/smtp2graph/config.yaml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -34,15 +34,16 @@ the rest of the code is just glue code to translate from SMTP to Graph API, a co
 first, install this service.
 on windows, you can run the following command in an elevated powershell prompt to automatically download and install the service.
 ```powershell
-irm https://raw.githubusercontent.com/shadow578/rs-smtp2graph/refs/heads/main/Install-SMTP2GraphService.ps1 | iex
+irm https://raw.githubusercontent.com/shadow578/rs-smtp2graph/refs/heads/main/scripts/Install-SMTP2GraphService.ps1 | iex
 
 ```
 
-
+on linux, you may use the sample systemd service in `/scripts/smtp2graph.service`.
+   
 once installed, configure the service using the config cli: `smtp2graph config <...>`
 
 
-### Configure SMTP
+### Configure the SMTP Server
 
 by default, the service will listen on port 25 of the loopback interface (`127.0.0.1:25`).
 unless your smtp client is running on the same machine, you'll need to change the listen address such that all interfaces are listened to (`0.0.0.0:25`).
