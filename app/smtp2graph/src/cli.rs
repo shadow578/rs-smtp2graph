@@ -7,7 +7,9 @@ use ms_graph::client::Client as GraphClient;
 use ms_graph::{API_MAX_MESSAGE_SIZE, RECOMMENDED_MAX_MESSAGE_SIZE};
 use std::time::Duration;
 
-/// SMTP to Microsoft Graph API mail proxy by Chris.
+/// SMTP2Graph: A SMTP to Microsoft Graph API mail proxy, developed by Chris.
+/// This tool is licensed under the GNU General Public License v3.0.
+/// For more information, refer to https://github.com/shadow578/rs-smtp2graph.
 #[derive(Parser, Debug)]
 pub(crate) struct Cli
 {
@@ -42,19 +44,19 @@ pub(crate) enum CliCommand
 #[derive(Parser, Debug)]
 pub(crate) enum ConfigCommand
 {
-    /// SMTP Server configuration.
+    /// Manage SMTP server.
     Smtp {
         #[command(subcommand)]
         command: SmtpCommand
     },
 
-    /// Microsoft Graph API configuration.
+    /// Manage Microsoft Graph API client.
     Graph {
         #[command(subcommand)]
         command: GraphCommand
     },
 
-    /// Authentication configuration.
+    /// Manage authentication configuration.
     Auth {
         #[command(subcommand)]
         command: AuthCommand
@@ -93,14 +95,14 @@ pub(crate) enum SmtpCommand
     #[command()]
     Show,
 
-    /// Update SMTP server configuration.
+    /// Setup SMTP server.
     #[command(group(
-        ArgGroup::new("update")
+        ArgGroup::new("setup")
             .required(true)
             .multiple(true)
             .args(["address", "name", "max_message_size"])
     ))]
-    Update {
+    Setup {
         /// SMTP server listen address. Example: '0.0.0.0:25'.
         #[arg(short, long)]
         address: Option<String>,
@@ -114,7 +116,7 @@ pub(crate) enum SmtpCommand
         max_message_size: Option<usize>,
     },
 
-    /// Update SMTP server fail2ban configuration.
+    /// Setup fail2ban for SMTP server.
     #[command(name = "fail2ban",
         group(
         ArgGroup::new("update")
@@ -140,7 +142,7 @@ pub(crate) enum SmtpCommand
         reset: bool,
     },
 
-    /// Configure SMTP server TLS configuration
+    /// Manage SMTP server TLS configuration
     #[command()]
     Tls {
         #[command(subcommand)]
@@ -155,7 +157,7 @@ impl SmtpCommand
             SmtpCommand::Show => {
                 Self::show(config);
             }
-            SmtpCommand::Update { address, name, max_message_size } => {
+            SmtpCommand::Setup { address, name, max_message_size } => {
                 if let Some(address) = address {
                     config.smtp.address = address.into();
                 }
@@ -255,7 +257,7 @@ impl SmtpCommand
 #[derive(Parser, Debug)]
 pub(crate) enum TlsCommand
 {
-    /// Configure TLS.
+    /// Setup TLS.
     #[command()]
     Setup {
         /// Path to certificate(s) for certificate chain, most concrete listed first.
@@ -298,14 +300,14 @@ pub(crate) enum GraphCommand
     #[command()]
     Show,
 
-    /// Update Microsoft Graph API configuration.
+    /// Setup Microsoft Graph API configuration.
     #[command(group(
-        ArgGroup::new("update")
+        ArgGroup::new("setup")
             .required(true)
             .multiple(true)
             .args(["tenant_id", "client_id", "client_secret"])
     ))]
-    Update {
+    Setup {
         /// ID of the Microsoft Entra tenant the application is registered in.
         #[arg(long)]
         tenant_id: Option<String>,
@@ -332,7 +334,7 @@ impl GraphCommand
             GraphCommand::Show => {
                 Self::show(config);
             }
-            GraphCommand::Update { tenant_id, client_id, client_secret } => {
+            GraphCommand::Setup { tenant_id, client_id, client_secret } => {
                 if let Some(tenant_id) = tenant_id {
                     config.graph.tenant_id = tenant_id.into();
                 }
@@ -385,13 +387,13 @@ impl GraphCommand
 #[derive(Parser, Debug)]
 pub(crate) enum AuthCommand
 {
-    /// User management.
+    /// Manage users.
     User {
         #[command(subcommand)]
         command: UserCommand
     },
 
-    /// Allow authentication over unsecure connections.
+    /// Allow authentication over insecure connections.
     #[command()]
     AllowInsecureAuth {
         #[command(subcommand)]
@@ -417,8 +419,8 @@ pub(crate) enum UserCommand
     #[command()]
     Show,
 
-    /// Add a new user.
-    #[command()]
+    /// Add or modify a user.
+    #[command(visible_alias = "modify")]
     Add {
         /// Username to add. Must match Microsoft Entra User UPN.
         username: String,
@@ -426,7 +428,7 @@ pub(crate) enum UserCommand
         /// Password for authentication against mail proxy.
         password: Option<String>,
 
-        /// force accept the username, even if it is likely invalid.
+        /// Force accept the username, even if it is likely invalid.
         #[arg(long)]
         force: bool,
     },
