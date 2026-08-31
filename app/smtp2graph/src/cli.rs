@@ -54,10 +54,10 @@ pub(crate) enum ConfigCommand
         command: GraphCommand
     },
 
-    /// User authentication configuration.
-    User {
+    /// Authentication configuration.
+    Auth {
         #[command(subcommand)]
-        command: UserCommand
+        command: AuthCommand
     },
 
     /// Restore default configuration.
@@ -71,12 +71,17 @@ impl ConfigCommand
         match self {
             ConfigCommand::Smtp { command } => command.execute(config).await,
             ConfigCommand::Graph { command } => command.execute(config).await,
-            ConfigCommand::User { command } => command.execute(config).await,
+            ConfigCommand::Auth { command } => command.execute(config).await,
             ConfigCommand::Reset => {
                 let defaults = ConfigFile::empty();
                 config.smtp = defaults.smtp;
                 config.graph = defaults.graph;
             }
+        }
+
+        // disable insecure auth when not needed
+        if config.smtp.allow_insecure_auth && (config.smtp.tls.is_some() || !config.smtp.auth.has_users()) {
+            config.smtp.allow_insecure_auth = false;
         }
     }
 }
@@ -135,23 +140,6 @@ pub(crate) enum SmtpCommand
         reset: bool,
     },
 
-    /// Allow authentication over unsecure connections.
-    #[command(group(
-        ArgGroup::new("allow")
-            .required(true)
-            .multiple(false)
-            .args(["yes", "no"])
-    ))]
-    AllowInsecureAuth {
-        /// Allow authentication over plain text.
-        #[arg(short, long)]
-        yes: bool,
-
-        /// Allow authentication only over TLS connection.
-        #[arg(short, long)]
-        no: bool,
-    },
-
     /// Configure SMTP server TLS configuration
     #[command()]
     Tls {
@@ -159,7 +147,6 @@ pub(crate) enum SmtpCommand
         command: TlsCommand
     },
 }
-
 impl SmtpCommand
 {
     pub(crate) async fn execute(&self, config: &mut ConfigFile)
@@ -183,11 +170,6 @@ impl SmtpCommand
                     } else {
                         Some(*max_message_size)
                     }
-                }
-
-                // disable insecure auth when not needed
-                if config.smtp.allow_insecure_auth && (config.smtp.tls.is_some() || !config.smtp.auth.has_users()) {
-                    config.smtp.allow_insecure_auth = false;
                 }
 
                 Self::show(config);
@@ -215,21 +197,6 @@ impl SmtpCommand
                 };
 
                 Self::show(config);
-            }
-            SmtpCommand::AllowInsecureAuth { yes, no } => {
-                if *no {
-                    config.smtp.allow_insecure_auth = false;
-                } else if *yes {
-                    println!("WARNING: You're about to allow authentication over unsecure, plain-text connections.");
-                    println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
-
-                    if prompt_user_confirmation("yes, i understand").is_ok() {
-                        println!("Insecure auth enabled");
-                        config.smtp.allow_insecure_auth = true;
-                    } else {
-                        println!("Aborting");
-                    }
-                }
             }
             SmtpCommand::Tls { command } => {
                 command.execute(config).await;
@@ -281,17 +248,7 @@ impl SmtpCommand
             println!(" N/A");
         }
 
-        if config.smtp.tls.is_none() && config.smtp.auth.has_users() {
-            println!();
-            println!("WARNING: You've configured user authentication, but have not configured TLS.");
-
-            if config.smtp.allow_insecure_auth {
-                println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
-            } else {
-                println!("Authentication is currently not enabled.");
-                println!("To enable authentication over plain-text connections, run 'smtp2graph config smtp allow-insecure-auth --yes'")
-            }
-        }
+        show_insecure_auth_warning(config);
     }
 }
 
@@ -426,6 +383,34 @@ impl GraphCommand
 }
 
 #[derive(Parser, Debug)]
+pub(crate) enum AuthCommand
+{
+    /// User management.
+    User {
+        #[command(subcommand)]
+        command: UserCommand
+    },
+
+    /// Allow authentication over unsecure connections.
+    #[command()]
+    AllowInsecureAuth {
+        #[command(subcommand)]
+        command: AllowInsecureAuthCommand
+    },
+}
+
+impl AuthCommand
+{
+    pub(crate) async fn execute(&self, config: &mut ConfigFile)
+    {
+        match self {
+            AuthCommand::User { command } => command.execute(config).await,
+            AuthCommand::AllowInsecureAuth { command } => command.execute(config).await,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
 pub(crate) enum UserCommand
 {
     /// Show all currently configured users.
@@ -524,6 +509,60 @@ impl UserCommand
         {
             println!(" {}", user);
         }
+
+        show_insecure_auth_warning(config);
     }
 }
 
+#[derive(Parser, Debug)]
+pub(crate) enum AllowInsecureAuthCommand {
+    /// Allow authentication over plain text.
+    Yes,
+
+    /// Allow authentication only over TLS connection.
+    No,
+}
+
+impl AllowInsecureAuthCommand
+{
+    pub(crate) async fn execute(&self, config: &mut ConfigFile)
+    {
+        if config.smtp.tls.is_some() {
+            println!("Cannot enable insecure authentication, secure authentication via TLS is available in your configuration.");
+            return;
+        }
+
+        match self {
+            AllowInsecureAuthCommand::Yes => {
+                println!("WARNING: You're about to allow authentication over unsecure, plain-text connections.");
+                println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
+                println!("This configuration is NOT recommended.");
+
+                if prompt_user_confirmation("yes, i understand").is_ok() {
+                    println!("Insecure auth enabled");
+                    config.smtp.allow_insecure_auth = true;
+                } else {
+                    println!("Aborting");
+                }
+            }
+            AllowInsecureAuthCommand::No => {
+                config.smtp.allow_insecure_auth = false;
+            }
+        }
+    }
+}
+
+fn show_insecure_auth_warning(config: &ConfigFile)
+{
+    if config.smtp.tls.is_none() && config.smtp.auth.has_users() {
+        println!();
+        println!("WARNING: You've configured user authentication, but have not configured TLS.");
+
+        if config.smtp.allow_insecure_auth {
+            println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
+        } else {
+            println!("Authentication is currently not enabled.");
+            println!("If you wish to enable authentication anyway, run 'smtp2graph config smtp allow-insecure-auth enable'")
+        }
+    }
+}
