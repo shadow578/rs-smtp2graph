@@ -139,6 +139,34 @@ function Add-FirewallRule() {
   New-NetFirewallRule -DisplayName "Allow $ServiceDisplayName" -Direction Inbound -Protocol TCP -LocalPort 25 -Program $ExePath -Action Allow
 }
 
+function Set-ConfigFilePermissions() {
+  $acl = Get-Acl -Path $ConfigFile
+
+  # disable inheritance
+  $acl.SetAccessRuleProtection($true, $false)
+
+  # remove any existing rules
+  $acl.Access | ForEach-Object {
+    $acl.RemoveAccessRule($_)
+  }
+
+  # LocalService only needs read access
+  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule("NT AUTHORITY\LocalService", "Read", "Allow")
+  $acl.AddAccessRule($rule)
+
+  # Administrators group needs full control for configuration
+  $admin = [System.Security.Principal.SecurityIdentifier]::new("S-1-5-32-544").Translate(
+    [System.Security.Principal.NTAccount]
+  )
+
+  $acl.SetOwner($admin)
+  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($admin, "FullControl", "Allow")
+  $acl.AddAccessRule($rule)
+
+  Write-Host "Setting permissions on configuration file at $ConfigFile..." -ForegroundColor Green
+  Set-Acl -Path $ConfigFile -AclObject $acl
+}
+
 function Main() {
   Write-Banner
 
@@ -153,11 +181,14 @@ function Main() {
   # download and verfiy the latest release
   DownloadServiceExecutable
 
-  # initialize the config file if it doesn't exist
+  # create config file if it doesn't exist yet
   if (-not (Test-Path -Path $ConfigFile)) {
-    Write-Host "Initializing configuration file at $ConfigFile..." -ForegroundColor Green
-    Start-Process -FilePath $ExePath -ArgumentList @("--config", "$ConfigFile", "config", "reset") -Wait
+    Write-Host "Creating default configuration file at $ConfigFile..." -ForegroundColor Green
+    & $ExePath --config "$ConfigFile" config reset
   }
+
+  # setup config acl
+  Set-ConfigFilePermissions
 
   # install the service if it doesn't exist
   # restart if it does exist
