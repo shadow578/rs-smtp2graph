@@ -564,7 +564,7 @@ fn show_insecure_auth_warning(config: &ConfigFile)
             println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
         } else {
             println!("Authentication is currently not enabled.");
-            println!("If you wish to enable authentication anyway, run 'smtp2graph config smtp allow-insecure-auth enable'")
+            println!("If you wish to enable authentication anyway, run 'smtp2graph config auth allow-insecure-auth yes'")
         }
     }
 }

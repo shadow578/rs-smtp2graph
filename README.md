@@ -38,7 +38,7 @@ irm https://raw.githubusercontent.com/shadow578/rs-smtp2graph/refs/heads/main/sc
 
 ```
 
-on linux, you may use the sample systemd service in `/scripts/smtp2graph.service`.
+on linux, you may use the sample systemd service in `scripts/smtp2graph.service`.
    
 once installed, configure the service using the config cli: `smtp2graph config <...>`
 

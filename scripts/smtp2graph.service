@@ -1,5 +1,5 @@
 # install the SMTP2Graph binary to /usr/local/bin and make it executable, then save this file to /etc/systemd/system/smtp2graph.service.
-# to configure the service, run smtp2graph --config /etc/smtp2graph/config.yaml.
+# to configure the service, run smtp2graph --config /etc/smtp2graph/config.yaml config <...>.
 # to enable the service, run:
 # sudo systemctl enable smtp2graph
 # sudo systemctl start smtp2graph

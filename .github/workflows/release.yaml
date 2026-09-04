@@ -24,6 +24,7 @@ jobs:
           sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/smtp2graph/Cargo.toml
           if ! grep -qE "^version = \"$VERSION\"" ./app/smtp2graph/Cargo.toml; then
             echo "failed to update version in Cargo.toml" >&2
+            exit 1
           else
             echo "version updated successfully in Cargo.toml" >&2
           fi
@@ -56,6 +57,7 @@ jobs:
           sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/smtp2graph/Cargo.toml
           if ! grep -qE "^version = \"$VERSION\"" ./app/smtp2graph/Cargo.toml; then
             echo "failed to update version in Cargo.toml" >&2
+            exit 1
           else
             echo "version updated successfully in Cargo.toml" >&2
           fi
