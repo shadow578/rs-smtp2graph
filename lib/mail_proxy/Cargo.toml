@@ -5,14 +5,13 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-argon2 = { version = "0.5", features = ["std"] }
+argon2 = { version = "0.6.0" }
 async-trait = "0.1.92"
 log = "0.4.33"
 password-hash = "0.6.1"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = "1.53.1"
 yaml_serde = "0.10.7"
-
 
 smtp = { path = "../smtp" }
 ms_graph = { path = "../ms_graph" }

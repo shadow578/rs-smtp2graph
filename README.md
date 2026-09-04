@@ -32,17 +32,22 @@ the rest of the code is just glue code to translate from SMTP to Graph API, a co
 ## Setup
 
 first, install this service.
-on windows, you can run `irm https://raw.githubusercontent.com/shadow578/rs-smtp2graph/refs/heads/main/Install-SMTP2GraphService.ps1 | iex` in an elevated powershell prompt to automatically download and install the service.
-on linux, you'll probalby figure it out ;).
+on windows, you can run the following command in an elevated powershell prompt to automatically download and install the service.
+```powershell
+irm https://raw.githubusercontent.com/shadow578/rs-smtp2graph/refs/heads/main/scripts/Install-SMTP2GraphService.ps1 | iex
 
+```
+
+on linux, you may use the sample systemd service in `/scripts/smtp2graph.service`.
+   
 once installed, configure the service using the config cli: `smtp2graph config <...>`
 
 
-### Configure SMTP
+### Configure the SMTP Server
 
 by default, the service will listen on port 25 of the loopback interface (`127.0.0.1:25`).
 unless your smtp client is running on the same machine, you'll need to change the listen address such that all interfaces are listened to (`0.0.0.0:25`).
-to do so, run `smtp2graph config smtp update --address "0.0.0.0:25"`.
+to do so, run `smtp2graph config smtp setup --address "0.0.0.0:25"`.
 if you want to use a differnt port, the same command can be used, simply change the port number in the address.
 
 
@@ -62,8 +67,8 @@ to update the certificate and private key, simply run the same command again wit
 
 create a new app registration in Microsoft Entra ID, give it a name ("smtp2graph" or whatever), and note the application (client) and directory (tenant) id.
 now, create a new client secret and note the value.
-to configure the service, use `smtp2graph config graph update --tenant-id <tenant_id> --client-id <client_id> --client-secret <client_secret>`.
-if you need to update the client secret, run `smtp2graph config graph update --client-secret <new_client_secret>`. the tenant and client id will remain the same.
+to configure the service, use `smtp2graph config graph setup --tenant-id <tenant_id> --client-id <client_id> --client-secret <client_secret>`.
+if you need to update the client secret, run `smtp2graph config graph setup --client-secret <new_client_secret>`. the tenant and client id will remain the same.
    
    
 for the simplest setup, simply grant the application the `Mail.Send` application permission, and then grant admin consent for the permission.
@@ -99,7 +104,7 @@ Test-ServicePrincipalAuthorization -Identity $sp -Resource "you@example.com"
 ### Configure Authentication
 
 by default, the procy does not require authentication, and will accept mail from any client.
-to change this, you can add users via the config cli: `smtp2graph config user add <username> [password]`.
+to change this, you can add users via the config cli: `smtp2graph config auth user add <username> [password]`.
 if you don't provide a password, a random one will be generated and printed to the console.
 
 the username used during authentication *must* match the sender address of the mail being sent, and must be a valid mailbox in your tenant.

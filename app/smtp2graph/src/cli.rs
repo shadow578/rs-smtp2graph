@@ -7,7 +7,9 @@ use ms_graph::client::Client as GraphClient;
 use ms_graph::{API_MAX_MESSAGE_SIZE, RECOMMENDED_MAX_MESSAGE_SIZE};
 use std::time::Duration;
 
-/// SMTP to Microsoft Graph API mail proxy by Chris.
+/// SMTP2Graph: A SMTP to Microsoft Graph API mail proxy, developed by Chris.
+/// This tool is licensed under the GNU General Public License v3.0.
+/// For more information, refer to https://github.com/shadow578/rs-smtp2graph.
 #[derive(Parser, Debug)]
 pub(crate) struct Cli
 {
@@ -42,22 +44,22 @@ pub(crate) enum CliCommand
 #[derive(Parser, Debug)]
 pub(crate) enum ConfigCommand
 {
-    /// SMTP Server configuration.
+    /// Manage SMTP server.
     Smtp {
         #[command(subcommand)]
         command: SmtpCommand
     },
 
-    /// Microsoft Graph API configuration.
+    /// Manage Microsoft Graph API client.
     Graph {
         #[command(subcommand)]
         command: GraphCommand
     },
 
-    /// User authentication configuration.
-    User {
+    /// Manage authentication configuration.
+    Auth {
         #[command(subcommand)]
-        command: UserCommand
+        command: AuthCommand
     },
 
     /// Restore default configuration.
@@ -71,12 +73,17 @@ impl ConfigCommand
         match self {
             ConfigCommand::Smtp { command } => command.execute(config).await,
             ConfigCommand::Graph { command } => command.execute(config).await,
-            ConfigCommand::User { command } => command.execute(config).await,
+            ConfigCommand::Auth { command } => command.execute(config).await,
             ConfigCommand::Reset => {
                 let defaults = ConfigFile::empty();
                 config.smtp = defaults.smtp;
                 config.graph = defaults.graph;
             }
+        }
+
+        // disable insecure auth when not needed
+        if config.smtp.allow_insecure_auth && (config.smtp.tls.is_some() || !config.smtp.auth.has_users()) {
+            config.smtp.allow_insecure_auth = false;
         }
     }
 }
@@ -88,14 +95,14 @@ pub(crate) enum SmtpCommand
     #[command()]
     Show,
 
-    /// Update SMTP server configuration.
+    /// Setup SMTP server.
     #[command(group(
-        ArgGroup::new("update")
+        ArgGroup::new("setup")
             .required(true)
             .multiple(true)
             .args(["address", "name", "max_message_size"])
     ))]
-    Update {
+    Setup {
         /// SMTP server listen address. Example: '0.0.0.0:25'.
         #[arg(short, long)]
         address: Option<String>,
@@ -109,7 +116,7 @@ pub(crate) enum SmtpCommand
         max_message_size: Option<usize>,
     },
 
-    /// Update SMTP server fail2ban configuration.
+    /// Setup fail2ban for SMTP server.
     #[command(name = "fail2ban",
         group(
         ArgGroup::new("update")
@@ -135,31 +142,13 @@ pub(crate) enum SmtpCommand
         reset: bool,
     },
 
-    /// Allow authentication over unsecure connections.
-    #[command(group(
-        ArgGroup::new("allow")
-            .required(true)
-            .multiple(false)
-            .args(["yes", "no"])
-    ))]
-    AllowInsecureAuth {
-        /// Allow authentication over plain text.
-        #[arg(short, long)]
-        yes: bool,
-
-        /// Allow authentication only over TLS connection.
-        #[arg(short, long)]
-        no: bool,
-    },
-
-    /// Configure SMTP server TLS configuration
+    /// Manage SMTP server TLS configuration
     #[command()]
     Tls {
         #[command(subcommand)]
         command: TlsCommand
     },
 }
-
 impl SmtpCommand
 {
     pub(crate) async fn execute(&self, config: &mut ConfigFile)
@@ -168,7 +157,7 @@ impl SmtpCommand
             SmtpCommand::Show => {
                 Self::show(config);
             }
-            SmtpCommand::Update { address, name, max_message_size } => {
+            SmtpCommand::Setup { address, name, max_message_size } => {
                 if let Some(address) = address {
                     config.smtp.address = address.into();
                 }
@@ -183,11 +172,6 @@ impl SmtpCommand
                     } else {
                         Some(*max_message_size)
                     }
-                }
-
-                // disable insecure auth when not needed
-                if config.smtp.allow_insecure_auth && (config.smtp.tls.is_some() || !config.smtp.has_users()) {
-                    config.smtp.allow_insecure_auth = false;
                 }
 
                 Self::show(config);
@@ -215,21 +199,6 @@ impl SmtpCommand
                 };
 
                 Self::show(config);
-            }
-            SmtpCommand::AllowInsecureAuth { yes, no } => {
-                if *no {
-                    config.smtp.allow_insecure_auth = false;
-                } else if *yes {
-                    println!("WARNING: You're about to allow authentication over unsecure, plain-text connections.");
-                    println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
-
-                    if prompt_user_confirmation("yes, i understand").is_ok() {
-                        println!("Insecure auth enabled");
-                        config.smtp.allow_insecure_auth = true;
-                    } else {
-                        println!("Aborting");
-                    }
-                }
             }
             SmtpCommand::Tls { command } => {
                 command.execute(config).await;
@@ -281,24 +250,14 @@ impl SmtpCommand
             println!(" N/A");
         }
 
-        if config.smtp.tls.is_none() && config.smtp.has_users() {
-            println!();
-            println!("WARNING: You've configured user authentication, but have not configured TLS.");
-
-            if config.smtp.allow_insecure_auth {
-                println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
-            } else {
-                println!("Authentication is currently not enabled.");
-                println!("To enable authentication over plain-text connections, run 'smtp2graph config smtp allow-insecure-auth --yes'")
-            }
-        }
+        show_insecure_auth_warning(config);
     }
 }
 
 #[derive(Parser, Debug)]
 pub(crate) enum TlsCommand
 {
-    /// Configure TLS.
+    /// Setup TLS.
     #[command()]
     Setup {
         /// Path to certificate(s) for certificate chain, most concrete listed first.
@@ -341,14 +300,14 @@ pub(crate) enum GraphCommand
     #[command()]
     Show,
 
-    /// Update Microsoft Graph API configuration.
+    /// Setup Microsoft Graph API configuration.
     #[command(group(
-        ArgGroup::new("update")
+        ArgGroup::new("setup")
             .required(true)
             .multiple(true)
             .args(["tenant_id", "client_id", "client_secret"])
     ))]
-    Update {
+    Setup {
         /// ID of the Microsoft Entra tenant the application is registered in.
         #[arg(long)]
         tenant_id: Option<String>,
@@ -375,7 +334,7 @@ impl GraphCommand
             GraphCommand::Show => {
                 Self::show(config);
             }
-            GraphCommand::Update { tenant_id, client_id, client_secret } => {
+            GraphCommand::Setup { tenant_id, client_id, client_secret } => {
                 if let Some(tenant_id) = tenant_id {
                     config.graph.tenant_id = tenant_id.into();
                 }
@@ -426,14 +385,42 @@ impl GraphCommand
 }
 
 #[derive(Parser, Debug)]
+pub(crate) enum AuthCommand
+{
+    /// Manage users.
+    User {
+        #[command(subcommand)]
+        command: UserCommand
+    },
+
+    /// Allow authentication over insecure connections.
+    #[command()]
+    AllowInsecureAuth {
+        #[command(subcommand)]
+        command: AllowInsecureAuthCommand
+    },
+}
+
+impl AuthCommand
+{
+    pub(crate) async fn execute(&self, config: &mut ConfigFile)
+    {
+        match self {
+            AuthCommand::User { command } => command.execute(config).await,
+            AuthCommand::AllowInsecureAuth { command } => command.execute(config).await,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
 pub(crate) enum UserCommand
 {
     /// Show all currently configured users.
     #[command()]
     Show,
 
-    /// Add a new user.
-    #[command()]
+    /// Add or modify a user.
+    #[command(visible_alias = "modify")]
     Add {
         /// Username to add. Must match Microsoft Entra User UPN.
         username: String,
@@ -441,7 +428,7 @@ pub(crate) enum UserCommand
         /// Password for authentication against mail proxy.
         password: Option<String>,
 
-        /// force accept the username, even if it is likely invalid.
+        /// Force accept the username, even if it is likely invalid.
         #[arg(long)]
         force: bool,
     },
@@ -464,7 +451,7 @@ impl UserCommand
             }
             UserCommand::Add { username, password, force } => {
                 println!("{} user {}",
-                         if config.smtp.has_user(username.into()) { "Updating" } else { "Adding" },
+                         if config.smtp.auth.has_user(username) { "Updating" } else { "Adding" },
                          username
                 );
 
@@ -494,7 +481,7 @@ impl UserCommand
                     }
                 };
 
-                if let Err(err) = config.smtp.set_user_password(username.into(), password)
+                if let Err(err) = config.smtp.auth.set_user_password(username, &password)
                 {
                     eprintln!("Failed to update user: {}", err);
                 }
@@ -504,7 +491,7 @@ impl UserCommand
             }
             UserCommand::Remove { username } => {
                 println!("Removing user {}", username);
-                if let Err(err) = config.smtp.remove_user(username.into())
+                if let Err(err) = config.smtp.auth.remove_user(username)
                 {
                     eprintln!("Failed to remove user: {}", err);
                 }
@@ -517,13 +504,67 @@ impl UserCommand
 
     fn show(config: &ConfigFile)
     {
-        let users = config.smtp.list_users();
+        let users = config.smtp.auth.list_users();
 
         println!("Listing {} Users:", users.len());
         for user in users
         {
             println!(" {}", user);
         }
+
+        show_insecure_auth_warning(config);
     }
 }
 
+#[derive(Parser, Debug)]
+pub(crate) enum AllowInsecureAuthCommand {
+    /// Allow authentication over plain text.
+    Yes,
+
+    /// Allow authentication only over TLS connection.
+    No,
+}
+
+impl AllowInsecureAuthCommand
+{
+    pub(crate) async fn execute(&self, config: &mut ConfigFile)
+    {
+        if config.smtp.tls.is_some() {
+            println!("Cannot enable insecure authentication, secure authentication via TLS is available in your configuration.");
+            return;
+        }
+
+        match self {
+            AllowInsecureAuthCommand::Yes => {
+                println!("WARNING: You're about to allow authentication over unsecure, plain-text connections.");
+                println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
+                println!("This configuration is NOT recommended.");
+
+                if prompt_user_confirmation("yes, i understand").is_ok() {
+                    println!("Insecure auth enabled");
+                    config.smtp.allow_insecure_auth = true;
+                } else {
+                    println!("Aborting");
+                }
+            }
+            AllowInsecureAuthCommand::No => {
+                config.smtp.allow_insecure_auth = false;
+            }
+        }
+    }
+}
+
+fn show_insecure_auth_warning(config: &ConfigFile)
+{
+    if config.smtp.tls.is_none() && config.smtp.auth.has_users() {
+        println!();
+        println!("WARNING: You've configured user authentication, but have not configured TLS.");
+
+        if config.smtp.allow_insecure_auth {
+            println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
+        } else {
+            println!("Authentication is currently not enabled.");
+            println!("If you wish to enable authentication anyway, run 'smtp2graph config smtp allow-insecure-auth enable'")
+        }
+    }
+}

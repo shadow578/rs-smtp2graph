@@ -16,6 +16,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo Version: $VERSION
+          sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/smtp2graph/Cargo.toml
+          if ! grep -qE "^version = \"$VERSION\"" ./app/smtp2graph/Cargo.toml; then
+            echo "failed to update version in Cargo.toml" >&2
+          else
+            echo "version updated successfully in Cargo.toml" >&2
+          fi
+
       - name: Build
         run: cargo build --release --package smtp2graph
 
@@ -35,6 +47,18 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo Version: $VERSION
+          sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/smtp2graph/Cargo.toml
+          if ! grep -qE "^version = \"$VERSION\"" ./app/smtp2graph/Cargo.toml; then
+            echo "failed to update version in Cargo.toml" >&2
+          else
+            echo "version updated successfully in Cargo.toml" >&2
+          fi
 
       - name: Build
         run: cargo build --release --package smtp2graph
