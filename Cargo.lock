@@ -1141,6 +1141,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "postgraph"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "clap",
+ "humantime",
+ "log",
+ "mail_proxy",
+ "ms_graph",
+ "pretty_env_logger",
+ "rand",
+ "tokio",
+ "windows-service",
+ "winres",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1681,24 +1699,6 @@ dependencies = [
  "rustls-pemfile",
  "tokio",
  "tokio-rustls",
-]
-
-[[package]]
-name = "smtp2graph"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "clap",
- "humantime",
- "log",
- "mail_proxy",
- "ms_graph",
- "pretty_env_logger",
- "rand",
- "tokio",
- "windows-service",
- "winres",
 ]
 
 [[package]]

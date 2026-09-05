@@ -9,7 +9,7 @@ use windows_service::service::{ServiceControl, ServiceControlAccept, ServiceExit
 use windows_service::service_control_handler::ServiceControlHandlerResult;
 use windows_service::{define_windows_service, service_control_handler, service_dispatcher};
 
-const SERVICE_NAME: &str = "smtp2graph";
+const SERVICE_NAME: &str = "postgraph";
 
 define_windows_service!(ffi_service_main, service_main);
 

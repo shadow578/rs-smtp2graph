@@ -7,9 +7,9 @@ use ms_graph::client::Client as GraphClient;
 use ms_graph::{API_MAX_MESSAGE_SIZE, RECOMMENDED_MAX_MESSAGE_SIZE};
 use std::time::Duration;
 
-/// SMTP2Graph: A SMTP to Microsoft Graph API mail proxy, developed by Chris.
+/// PostGraph: A SMTP to Microsoft Graph API mail proxy, developed by Chris.
 /// This tool is licensed under the GNU General Public License v3.0.
-/// For more information, refer to https://github.com/shadow578/rs-smtp2graph.
+/// For more information, refer to https://github.com/shadow578/PostGraph-rs.
 #[derive(Parser, Debug)]
 pub(crate) struct Cli
 {
@@ -24,10 +24,10 @@ pub(crate) struct Cli
 #[derive(Parser, Debug)]
 pub(crate) enum CliCommand
 {
-    /// Run smtp2graph.
+    /// Run PostGraph.
     Run
     {
-        /// Run smtp2graph as a Windows service.
+        /// Run PostGraph as a Windows service.
         /// Please note that in this mode, you must provide the absolute config path via '--config'.
         #[cfg(windows)]
         #[clap(short, long)]
@@ -564,7 +564,7 @@ fn show_insecure_auth_warning(config: &ConfigFile)
             println!("In this configuration, credentials are sent in plain-text, potentially allowing credential theft.");
         } else {
             println!("Authentication is currently not enabled.");
-            println!("If you wish to enable authentication anyway, run 'smtp2graph config auth allow-insecure-auth yes'")
+            println!("If you wish to enable authentication anyway, run 'postgraph config auth allow-insecure-auth yes'")
         }
     }
 }

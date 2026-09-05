@@ -113,7 +113,7 @@ impl SMTPServerConfig
         H: Handler,
     {
         config.with_address(self.address.clone());
-        config.with_server_name(self.name.as_ref().unwrap_or(&"smtp2graph".into()));
+        config.with_server_name(self.name.as_ref().unwrap_or(&"postgraph".into()));
 
         if let Some(tls) = &self.tls {
             config.with_tls(TlsConfig::Chain {

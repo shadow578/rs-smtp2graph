@@ -21,8 +21,8 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo Version: $VERSION
-          sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/smtp2graph/Cargo.toml
-          if ! grep -qE "^version = \"$VERSION\"" ./app/smtp2graph/Cargo.toml; then
+          sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/postgraph/Cargo.toml
+          if ! grep -qE "^version = \"$VERSION\"" ./app/postgraph/Cargo.toml; then
             echo "failed to update version in Cargo.toml" >&2
             exit 1
           else
@@ -30,13 +30,13 @@ jobs:
           fi
 
       - name: Build
-        run: cargo build --release --package smtp2graph
+        run: cargo build --release --package postgraph
 
       - name: Upload executable
         uses: actions/upload-artifact@v7
         with:
-          name: smtp2graph-linux
-          path: target/release/smtp2graph
+          name: postgraph-linux
+          path: target/release/postgraph
           if-no-files-found: error
 
   build-windows:
@@ -54,8 +54,8 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo Version: $VERSION
-          sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/smtp2graph/Cargo.toml
-          if ! grep -qE "^version = \"$VERSION\"" ./app/smtp2graph/Cargo.toml; then
+          sed -Ei "s|^version = \"[0-9.]+\"|version = \"$VERSION\"|" ./app/postgraph/Cargo.toml
+          if ! grep -qE "^version = \"$VERSION\"" ./app/postgraph/Cargo.toml; then
             echo "failed to update version in Cargo.toml" >&2
             exit 1
           else
@@ -63,13 +63,13 @@ jobs:
           fi
 
       - name: Build
-        run: cargo build --release --package smtp2graph
+        run: cargo build --release --package postgraph
 
       - name: Upload executable
         uses: actions/upload-artifact@v7
         with:
-          name: smtp2graph-windows
-          path: target/release/smtp2graph.exe
+          name: postgraph-windows
+          path: target/release/postgraph.exe
           if-no-files-found: error
 
   release:
@@ -84,13 +84,13 @@ jobs:
       - name: Download Linux executable
         uses: actions/download-artifact@v8
         with:
-          name: smtp2graph-linux
+          name: postgraph-linux
           path: release
 
       - name: Download Windows executable
         uses: actions/download-artifact@v8
         with:
-          name: smtp2graph-windows
+          name: postgraph-windows
           path: release
 
       - name: Create immutable release
@@ -101,5 +101,5 @@ jobs:
           make_latest: true
           generate_release_notes: true
           files: |
-            release/smtp2graph
-            release/smtp2graph.exe
+            release/postgraph
+            release/postgraph.exe
