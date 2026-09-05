@@ -4,6 +4,10 @@ extern crate winres;
 fn main() {
     #[cfg(windows)]
     {
+        println!("cargo:rerun-if-changed=icon_c.ico");
+        println!("cargo:rerun-if-changed=manifest.xml");
+        println!("cargo:rerun-if-changed=Cargo.toml");
+        
         // only build resources for release
         if std::env::var("PROFILE").unwrap() == "release" {
             let mut res = winres::WindowsResource::new();
