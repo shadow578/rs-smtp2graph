@@ -1,0 +1,19 @@
+# install the PostGraph binary to /usr/local/bin and make it executable, then save this file to /etc/systemd/system/postgraph.service.
+# to configure the service, run postgraph --config /etc/postgraph/config.yaml config <...>.
+# to enable the service, run:
+# sudo systemctl enable postgraph
+# sudo systemctl start postgraph
+
+[Unit]
+Description=PostGraph SMTP to Microsoft Graph API mail proxy service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/postgraph --config /etc/postgraph/config.yaml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

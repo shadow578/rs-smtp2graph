@@ -1,11 +1,11 @@
 param()
 
-$Repo = "shadow578/rs-smtp2graph"
-$Asset = "smtp2graph.exe"
+$Repo = "shadow578/PostGraph-rs"
+$Asset = "postgraph.exe"
 
-$InstallDir = "C:\Program Files\SMTP2Graph"
-$ServiceName = "smtp2graph"
-$ServiceDisplayName = "SMTP2Graph Mail Proxy"
+$InstallDir = "C:\Program Files\PostGraph"
+$ServiceName = "postgraph"
+$ServiceDisplayName = "PostGraph Mail Proxy"
 $ServiceDescription = "Receives SMTP messages and forwards them to Microsoft Graph API for delivery."
 
 $MetaUri = "https://api.github.com/repos/$Repo/releases/latest"
@@ -15,7 +15,7 @@ $ConfigFile = Join-Path -Path $InstallDir -ChildPath "config.yaml"
 
 function Write-Banner() {
   Write-Host "======================================" -ForegroundColor Cyan
-  Write-Host "  SMTP2Graph Proxy Service Installer  " -ForegroundColor Cyan
+  Write-Host "  PostGraph Proxy Service Installer  " -ForegroundColor Cyan
   Write-Host "======================================" -ForegroundColor Cyan
 }
 
@@ -44,7 +44,7 @@ function DownloadServiceExecutable() {
   }
   $exeDigest = $exeDigest -replace 'sha256:', ''
 
-  Write-Host "Installing SMTP2Graph version $releaseName ($releaseTag) released on $releaseDate..." -ForegroundColor Green
+  Write-Host "Installing PostGraph version $releaseName ($releaseTag) released on $releaseDate..." -ForegroundColor Green
   if ((Read-Host "Do you want to continue? (y/N)") -ine 'y') {
     Write-Host "Installation aborted." -ForegroundColor Yellow
     exit 1
@@ -64,7 +64,7 @@ function DownloadServiceExecutable() {
   }
 
   # download the latest release
-  Write-Host "Downloading SMTP2Graph service from $DownloadUri..." -ForegroundColor Green
+  Write-Host "Downloading PostGraph service from $DownloadUri..." -ForegroundColor Green
   Invoke-WebRequest -Uri $DownloadUri -OutFile $ExePath -UseBasicParsing
 
   # validate size and digest match
@@ -97,18 +97,18 @@ function Test-ProxyServiceExists() {
 
 function Stop-ProxyService() {
   if (Test-ProxyServiceExists) {
-    Write-Host "Stopping existing SMTP2Graph service..." -ForegroundColor Green
+    Write-Host "Stopping existing PostGraph service..." -ForegroundColor Green
     Stop-Service -Name $ServiceName -Force | Out-Null
   }
 }
 
 function Update-ProxyService() {
   if (Test-ProxyServiceExists) {
-    Write-Host "Restarting SMTP2Graph service..." -ForegroundColor Green
+    Write-Host "Restarting PostGraph service..." -ForegroundColor Green
     Restart-Service -Name $ServiceName | Out-Null
   }
   else {
-    Write-Host "Installing SMTP2Graph service..." -ForegroundColor Green
+    Write-Host "Installing PostGraph service..." -ForegroundColor Green
 
     # use LocalService for least privilege.
     # password is required but not used.
@@ -123,7 +123,7 @@ function Update-ProxyService() {
       -ErrorAction Stop | Out-Null
 
     if (-not (Test-ProxyServiceExists)) {
-      Write-Host "Failed to install SMTP2Graph service." -ForegroundColor Red
+      Write-Host "Failed to install PostGraph service." -ForegroundColor Red
       exit 1
     }
   }
@@ -199,7 +199,7 @@ function Main() {
 
   # done
   Write-Host ""
-  Write-Host "SMTP2Graph service installation complete." -ForegroundColor Green
+  Write-Host "PostGraph service installation complete." -ForegroundColor Green
   Write-Host "You must now configure the service before it can be used." -ForegroundColor Yellow
   Write-Host "To manage configuration, use the configuration cli using this command:" -ForegroundColor Yellow
   Write-Host "  `"$ExePath`" --config `"$ConfigFile`" config (...)" -ForegroundColor Yellow 

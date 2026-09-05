@@ -1,13 +1,13 @@
 [package]
-name = "smtp2graph"
+name = "postgraph"
 version = "1.0.0"
 edition = "2024"
 
 [package.metadata.winres]
-ProductName = "SMTP2Graph"
+ProductName = "PostGraph"
 FileDescription = "SMTP to Microsoft Graph API mail proxy, written in rust."
 LegalCopyright = "Copyright © 2026"
-OriginalFilename = "SMTP2Graph.exe"
+OriginalFilename = "PostGraph.exe"
 
 [dependencies]
 anyhow = "1"
