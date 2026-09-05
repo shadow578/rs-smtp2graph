@@ -1,4 +1,4 @@
-# SMTP2Graph - SMTP to Microsoft Graph API proxy
+# <img src="icon/icon_c_trans.png" width="auto" height="32" alt="Logo"> SMTP2Graph - SMTP to Microsoft Graph API proxy
 
 SMTP2Graph is a simple tool that acts as a proxy between legacy SMTP clients and the Microsoft Graph API.
 it allows you to send mails via Microsoft Graph API using any SMTP client.

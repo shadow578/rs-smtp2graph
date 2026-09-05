@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   sodipodi:docname="icon_c.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="1.4378367"
+     inkscape:cx="218.73138"
+     inkscape:cy="229.8592"
+     inkscape:window-width="1920"
+     inkscape:window-height="1009"
+     inkscape:window-x="-8"
+     inkscape:window-y="-5"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect8"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,3.9816162,0,1 @ F,0,0,1,0,0,0,1 @ F,0,0,1,0,0,0,1 @ F,0,0,1,0,5.7251991,0,1"
+       radius="0"
+       unit="px"
+       method="auto"
+       mode="F"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
+    <linearGradient
+       id="linearGradient5"
+       inkscape:collect="always">
+      <stop
+         style="stop-color:#ffc702;stop-opacity:1;"
+         offset="0.26255924"
+         id="stop5" />
+      <stop
+         style="stop-color:#2d15aa;stop-opacity:1;"
+         offset="1"
+         id="stop6" />
+    </linearGradient>
+    <linearGradient
+       inkscape:collect="always"
+       xlink:href="#linearGradient5"
+       id="linearGradient8"
+       gradientUnits="userSpaceOnUse"
+       x1="19.777962"
+       y1="49.314783"
+       x2="118.40752"
+       y2="49.314783" />
+  </defs>
+  <g
+     inkscape:label="Ebene 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     inkscape:export-filename="icon_c_exp1.png"
+     inkscape:export-xdpi="216.46724"
+     inkscape:export-ydpi="216.46724">
+    <ellipse
+       style="fill:#f3f3f3;fill-opacity:1;stroke:none;stroke-width:2.96999;stroke-dasharray:none;stroke-opacity:1"
+       id="path8"
+       cx="75.255142"
+       cy="50.563927"
+       rx="60.07745"
+       ry="60.077442" />
+    <path
+       style="fill:url(#linearGradient8);fill-opacity:1;stroke:#000000;stroke-width:2;stroke-dasharray:none;stroke-opacity:1"
+       id="rect4"
+       width="98.629562"
+       height="58.553173"
+       x="19.777962"
+       y="20.038197"
+       inkscape:path-effect="#path-effect8"
+       sodipodi:type="rect"
+       d="M 23.759578,20.038197 H 118.40752 V 78.59137 H 25.503161 A 5.7251991,5.7251991 45 0 1 19.777962,72.866171 V 24.019813 a 3.9816162,3.9816162 135 0 1 3.981616,-3.981616 z"
+       transform="matrix(0.92287402,0,0,1.0013233,9.1735416,-0.06526115)" />
+    <path
+       style="display:inline;fill:none;stroke:#000000;stroke-width:1.92923;stroke-dasharray:none"
+       d="m 28.988002,21.903171 43.90229,28.585085 0.02246,-0.04907 44.129478,-27.614579"
+       id="path3"
+       sodipodi:nodetypes="cccc" />
+    <circle
+       style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:2;stroke-dasharray:none"
+       id="path4"
+       cx="73.233643"
+       cy="50.514732"
+       r="3.5492847" />
+    <circle
+       style="fill:#2d15aa;fill-opacity:1;stroke:#000000;stroke-width:2;stroke-dasharray:none"
+       id="path4-2"
+       cx="118.48104"
+       cy="20.256695"
+       r="3.5492847" />
+    <circle
+       style="fill:#2d15aa;fill-opacity:1;stroke:#000000;stroke-width:2;stroke-dasharray:none"
+       id="path4-23"
+       cx="118.52193"
+       cy="78.554543"
+       r="3.5492847" />
+  </g>
+</svg>

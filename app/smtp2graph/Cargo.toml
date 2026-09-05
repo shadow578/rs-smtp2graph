@@ -3,6 +3,12 @@ name = "smtp2graph"
 version = "1.0.0"
 edition = "2024"
 
+[package.metadata.winres]
+ProductName = "SMTP2Graph"
+FileDescription = "SMTP to Microsoft Graph API mail proxy, written in rust."
+LegalCopyright = "Copyright © 2026"
+OriginalFilename = "SMTP2Graph.exe"
+
 [dependencies]
 anyhow = "1"
 base64 = "0.23.1"
@@ -18,3 +24,6 @@ ms_graph = { path = "../../lib/ms_graph" }
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.8.1"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"
